@@ -802,8 +802,6 @@ function testGreenThirdIdentity(domain_quad, boundary_quad)
     println(Inti.integrate(domain_function, domain_quad))
     println(expected_u_val)
     println(calculated_u_val)
-    # close but not good enough still
-    # jk it converges with meshsize again????
     # changing qorder changes very little; meshsize is the thing to change here to get convergence
     # but the convergence feels much much slower than it should be right now. We shouldn't have to go down to 0.025 size triangles
     # with 23000 domain quadrature nodes and 1500 boundary quadrature nodes to get an error of 1e-3.
