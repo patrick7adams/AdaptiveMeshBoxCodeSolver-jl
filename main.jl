@@ -20,7 +20,7 @@ using IterativeSolvers, LinearAlgebra
 
 p = 12 # deg of interpolating polys for function refinement
 len = 2^30# size of default quadtree
-meshsize = 0.08
+meshsize = 0.025
 max_triangle_size = meshsize # temporary constraint
 contain_tol = 1e-15
 
@@ -73,11 +73,6 @@ function ResolvedSourceCheby(Q, f, tol)
     else
         false
     end
-end
-
-function integrate(bounds, poly)
-    # Calculates the integral of the approximation of the forcing function
-    # poly on the square boundary given by bounds
 end
 
 function QuadToCoords(quadrant)
@@ -353,20 +348,6 @@ function getInternalBoundaryPoints(tree)
     return internalBoundaryPoints
 end
 
-function pointListToCurveLoop(point_list)
-    point_tags = []
-    for point in point_list
-        tag = gmsh.model.occ.addPoint(point[1], point[2], 0, max_triangle_size)
-        push!(point_tags, tag)
-    end
-    curve_tags = []
-    for i in 1:length(point_tags)-1
-        tag = gmsh.model.occ.addLine(point_tags[i], point_tags[i+1])
-        push!(curve_tags, tag)
-    end
-    inner_loop = gmsh.model.occ.addCurveLoop(curve_tags)
-end
-
 function createMesh()
     # this is good so far. I can now create inscribed mesh polygons from a
     # list of points. Very good, now will work on refinement criteria
@@ -503,28 +484,6 @@ function createMeshFromQuadtree(forest)
     end
     geometry = Meshes.GeometrySet(box_list)
     return geometry
-end
-
-function showHybridMesh(msh, forest)
-    # first create a mesh object from the quadtree given by forest
-    println("Showing mesh!!!")
-
-    forest_mesh = createMeshFromQuadtree(forest)
-    
-    Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
-    Γ = Inti.boundary(Ω)
-    Ω_msh = @views msh[Ω]
-    Γ_msh = @views msh[Γ]
-    fig = viz(
-        Ω_msh;
-        segmentsize = 1,
-        showsegments = true,
-        axis = (aspect = DataAspect(),),
-        figure = (; size = (500, 400)),
-    )
-    viz!(Γ_msh; color = :red, segmentsize = 1)
-    viz!(forest_mesh; showsegments = true, segmentsize = 1)
-    display(fig)
 end
 
 function getBoundaryMesh(msh)
@@ -665,6 +624,7 @@ function initializeMeshVariables(mesh)
         bounds[2][i] += mesh_len[i] * 0.05
     end
     global mesh_len = [bounds[2][1] - bounds[1][1], bounds[2][2] - bounds[1][2]]
+    global original_mesh = mesh
     global bndry_mesh = getBoundaryMesh(mesh)
     global bndry_mesh_points, bndry_mesh_orientations = getBoundaryPoints(bndry_mesh)
     global num_boundaries = length(bndry_mesh_points)
@@ -744,9 +704,7 @@ function createQuadtreeMesh()
     gmsh.open("testing.msh")
     mesh = Inti.import_mesh(; dim = 2)
 
-    
-
-    showMesh(mesh)
+    # showMesh(mesh)
 
     initializeMeshVariables(mesh)
     
@@ -801,83 +759,81 @@ function testArea(domain_quad)
 end
 
 function testBoundaryLength(boundary_quad)
-    expected_length = 2*pi + 3.027
+    star_len = sqrt(0.3^2 + 0.05^2)*4 + sqrt(0.4^2 + 0.05^2)*2 + sqrt(0.5^2 + 0.05^2)*2
+    expected_length = 2*pi + star_len
     quadeval_f = (q) -> 1
     computed_length = Inti.integrate(quadeval_f, boundary_quad)
-
+    # qorder 1 - 121, qorder 2,3 - 242, qorder 4,5 - 363, qorder 6 - 484 (num quadrature points)
+    # convergence also slows extremely quickly (once it gets down to around 4e-7, close to tol though so should be ok? also maybe expected)
+    # convergence is much more exact (for this at least) when reducing meshsize rather than qorder. Makes sense as the qorder doesn't do
+    # anything at a point, they just further approximate a bad line (which converges to 2pi when meshsize is reduced instead).
     println(expected_length)
     println(computed_length)
     print("Difference between lengths: ")
     println(abs(expected_length - computed_length))
 end
 
+function testGreenThirdIdentity(domain_quad, boundary_quad)
+    x_test = (1, 1) # point just outside of the region
+    u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
+    # check these eqns lol
+    partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+    partial_y_u = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+    laplacian_u = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+    greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+    partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+    partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+    normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+    normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+    boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+
+    domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+    expected_u_val = u(x_test)
+
+    boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+    domain_integral = Inti.integrate(domain_function, domain_quad)
+    calculated_u_val = domain_integral - boundary_integral
+
+    println(Inti.integrate(boundary_function, boundary_quad))
+    println(Inti.integrate(domain_function, domain_quad))
+    println(expected_u_val)
+    println(calculated_u_val)
+    # close but not good enough still
+    # jk it converges with meshsize again????
+    # changing qorder changes very little; meshsize is the thing to change here to get convergence
+    # but the convergence feels much much slower than it should be right now. We shouldn't have to go down to 0.025 size triangles
+    # with 23000 domain quadrature nodes and 1500 boundary quadrature nodes to get an error of 1e-3.
+    # but with 11000 domain quadrature nodes we get an equivalent error
+    # and with 3300 domain quadrature nodes we only have an error of 2e-2. 
+    return
+end
+
 function calculateMeshvals(mesh)
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, mesh)
-    boundary = Inti.external_boundary(dom)
+    boundary_dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 1, bndry_mesh)
+    # boundary = Inti.external_boundary(dom)
     dom_mesh = Inti.view(mesh, dom)
-    boundary_mesh = Inti.view(mesh, boundary)
+    boundary_mesh = Inti.view(original_mesh, boundary_dom)
 
     domain_quad = Inti.Quadrature(dom_mesh; qorder=4)
-    boundary_quad = Inti.Quadrature(boundary_mesh; qorder=2)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder=6)
+    
     println(domain_quad)
     println(boundary_quad)
 
-    greenfn = (x) -> 1/(2pi) * log(distance(x, r0))
+    # greenfn = (x) -> 1/(2pi) * log(distance(x, r0))
     
     # testArea(domain_quad)
-    testBoundaryLength(boundary_quad)
+    # testBoundaryLength(boundary_quad)
+    testGreenThirdIdentity(domain_quad, boundary_quad)
+
     # test area with Quadrature GOOD
-    # test boundary w domain quadrature (green / stokes thm, r0 external but close)
-
-    # boundary is including internal boundaries at the moment
-
-    # greens third identity test 
-    # look at issues with low mesh size
-
-
-
-
-    # op = Inti.Laplace(; dim = 2)
-    # V_d2b = Inti.volume_potential(; 
-    #     op, 
-    #     target = boundary_quad, 
-    #     source = domain_quad, 
-    #     # compression = (method = :none, ),
-    #     correction = (method = :none, ),
-    #     compression = (method = :fmm, tol = 1.0e-12), 
-    #     # correction = (method = :dim, maxdist = 0.5, target_location = :inside), 
-    #     # issues with dim correction? always having weird stuff with the order. is this necessary? docs make it seem necessary
-    # )
-    # S_b2b, D_b2b = Inti.single_double_layer(;
-    #     op,
-    #     target = boundary_quad, 
-    #     source = boundary_quad, 
-    #     compression = (method = :fmm, tol = 1.0e-12), 
-    #     correction = (method = :dim,),
-    # )
-    # u = (x) -> cos(2 * x[1]) * sin(2 * x[2])
-    # f = (x) -> 8 * cos(2 * x[1]) * sin(2 * x[2])
-    # g = map(q -> u(q.coords), boundary_quad)
-    # cool_f = map(q -> f(q.coords), domain_quad)
-
-    # rhs = g - V_d2b * cool_f
-
-    # sigma = gmres(-I / 2 + D_b2b, rhs; abstol = 1.0e-8, verbose = true, restart = 1000)
-
-    # G = Inti.SingleLayerKernel(op)
-    # dG = Inti.DoubleLayerKernel(op)
-    # V = Inti.IntegralPotential(G, domain_quad)
-    # # println(V)
-    # # println(V[cool_f])
-    # # println(V[cool_f]())
-    # D = Inti.IntegralPotential(dG, boundary_quad)
-    # u_comp = (x) -> V[cool_f](x) + D[sigma](x)
-
-    # point = Inti.Point2D(-0.1, 0.0)
-    # u_val = u(point)
-    # u_comp_val = u_comp(point)
-    # example_error = abs(u(point) - u_comp(point))
-    # println(example_error)
+    # test length with Quadrature GOOD-ish
+    # greens third identity test GOOD-ish
 end
 
 # driver code
@@ -900,5 +856,14 @@ calculateMeshvals(msh)
 
 # TODO
 # - fix issues when boundaries are close
-# - speed up slightly? it felt slow earlier
-# - begin evaluation with Inti
+# - SPEED UP PLEASE
+# - change small triangles system
+#    - right now we just cap the size of triangle formed for every boundary to meshsize. While the external boundary should have
+#      meshsize-sized triangles, we shouldn't require every boundary to be like this, especially inner boundaries
+# - fix issues with boundaries sometimes ignoring quads that are closer than other quads that get cut (prob issue with quad classification)
+
+# TO DISCUSS
+# - fixed boundary strip length to be relative to meshsize
+# - area and length testing
+# - qorder vs meshsize convergence
+# - greens third identity tests (and why its still bad)
