@@ -20,7 +20,7 @@ using IterativeSolvers, LinearAlgebra
 
 p = 12 # deg of interpolating polys for function refinement
 len = 2^30# size of default quadtree
-meshsize = 0.025
+meshsize = 0.5
 max_triangle_size = meshsize # temporary constraint
 contain_tol = 1e-15
 
@@ -375,7 +375,8 @@ function createMesh()
         push!(curve_tags, tag)
     end
     inner_loop = gmsh.model.occ.addCurveLoop(curve_tags)
-    surf = gmsh.model.occ.addPlaneSurface([curve_loop, inner_loop])
+    # surf = gmsh.model.occ.addPlaneSurface([curve_loop, inner_loop])
+    surf = gmsh.model.occ.addPlaneSurface([curve_loop])
 
     
     gmsh.model.occ.synchronize()
@@ -704,11 +705,11 @@ function createQuadtreeMesh()
     gmsh.open("testing.msh")
     mesh = Inti.import_mesh(; dim = 2)
 
-    # showMesh(mesh)
+    showMesh(mesh)
 
     initializeMeshVariables(mesh)
     
-    forest = createQuadtree()
+    forest = createQuadtree(4)
 
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
     
@@ -773,6 +774,33 @@ function testBoundaryLength(boundary_quad)
     println(abs(expected_length - computed_length))
 end
 
+function testGreensIdentity(domain_quad, boundary_quad)
+    P = (x, y) -> x^2*y
+    Q = (x, y) -> x^3*y^2
+    dPdy = (x, y) -> x^2
+    dQdx = (x, y) -> 3*x^2*y^2
+
+    boundary_fn = (q) -> P(q.coords...)*q.normal[2]*-1 + Q(q.coords...)*q.normal[1]
+    domain_fn = (q) -> dQdx(q.coords...) - dPdy(q.coords...)
+
+    computed_boundary_int = Inti.integrate(boundary_fn, boundary_quad)
+    computed_domain_int = Inti.integrate(domain_fn, domain_quad)
+
+    println(computed_boundary_int - (-pi/8))
+    println(computed_domain_int - (-pi/8))
+    println("Error in values: ", abs(computed_boundary_int - computed_domain_int))
+
+    # what this tells me: error with the boundary calculation is essentially zero
+    # error with domain integral calculation though is quite high 
+
+    # what can the error source be? first, check quadrature nodes I guess
+
+    # visually the quadrature nodes look fine. this is quite strange
+
+    # HUGE: the quadrature on the squares is the issue! when removing the quadtree from the mesh
+    # the domain error drops to almost exactly the same as the boundary error
+end
+
 function testGreenThirdIdentity(domain_quad, boundary_quad)
     x_test = (1, 1) # point just outside of the region
     u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
@@ -817,17 +845,32 @@ function calculateMeshvals(mesh)
     dom_mesh = Inti.view(mesh, dom)
     boundary_mesh = Inti.view(original_mesh, boundary_dom)
 
+    # domain_quad = Inti.Quadrature(dom; meshsize, qorder=4)
     domain_quad = Inti.Quadrature(dom_mesh; qorder=4)
     boundary_quad = Inti.Quadrature(boundary_mesh; qorder=6)
     
     println(domain_quad)
     println(boundary_quad)
+    
+    domain_quad_coords = Meshes.PointSet(map((q) -> Meshes.Point(q.coords...), domain_quad))
+
+    fig = viz(
+        dom_mesh;
+        segmentsize = 1,
+        showsegments = true,
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (500, 400)),
+    )
+    viz!(boundary_mesh; color = :red, segmentsize = 1)
+    viz!(domain_quad_coords; color = :blue, pointsize = 2)
+    display(fig)
 
     # greenfn = (x) -> 1/(2pi) * log(distance(x, r0))
     
     # testArea(domain_quad)
     # testBoundaryLength(boundary_quad)
-    testGreenThirdIdentity(domain_quad, boundary_quad)
+    testGreensIdentity(domain_quad, boundary_quad)
+    # testGreenThirdIdentity(domain_quad, boundary_quad)
 
     # test area with Quadrature GOOD
     # test length with Quadrature GOOD-ish
@@ -838,7 +881,8 @@ end
 gmsh.initialize()
 gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
 msh = createQuadtreeMesh()
-showMesh(msh)
+# gmsh.open("testing.msh")
+# msh = Inti.import_mesh(; dim = 2)
 calculateMeshvals(msh)
 
 
@@ -861,7 +905,11 @@ calculateMeshvals(msh)
 # - fix issues with boundaries sometimes ignoring quads that are closer than other quads that get cut (prob issue with quad classification)
 
 # TO DISCUSS
-# - fixed boundary strip length to be relative to meshsize
-# - area and length testing
-# - qorder vs meshsize convergence
-# - greens third identity tests (and why its still bad)
+# - Issues with curving a given mesh (association is one-to-one)
+# - Progress with green's theorem equivalency
+# - Issues with domain quadrature over square regions
+
+# sizing mesh
+# set scalar field to determine local h value (determined by boundary h value)
+# https://integralequations.github.io/Inti.jl/stable/tutorials/geo_and_meshes/#Curving-a-given-mesh
+# test green's theorem
