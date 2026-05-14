@@ -692,33 +692,6 @@ function createQuadtreeMesh(mesh, forcing_func, meshsize, max_triangle_size, par
     return combined_msh
 end
 
-function createCurvedMesh(meshes, parametrization_dict)
-    theta = 6
-    dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
-    boundary = Inti.boundary(dom)
-
-    labels = getLabels()
-    curved_meshes = []
-
-    # println(meshes)
-    # for entity in Inti.entities(meshes[1])
-    #     println(entity)
-    # end
-    println("----")
-    for i in 2:length(meshes)
-        label = labels[i]
-        parametrization = parametrization_dict[label]
-        showMesh(meshes[i])
-        for entity in Inti.entities(meshes[i])
-            println(entity)
-        end
-        curved_mesh = Inti.curve_mesh(meshes[i], parametrization, theta)
-        showMesh(curved_mesh)
-        push!(curved_meshes, curved_mesh)
-    end
-    return curved_meshes
-end
-
 # driver code
 # gmsh.initialize()
 # gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
