@@ -70,7 +70,7 @@ function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
     gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
 
     if outside_curve == []
-        circle = Inti.gmsh_curve(0, 2pi; npts=200, meshsize=max_triangle_size) do s # this could be the problem? maybe not approximating this curve fully
+        circle = Inti.gmsh_curve(0, 2pi; npts=100, meshsize=max_triangle_size) do s # this could be the problem? maybe not approximating this curve fully
             return Inti.Point2D(cos(s), sin(s))
         end
         # circle = gmsh.model.occ.addCircle(0.0, 0.0, 0.0, 1.0)
