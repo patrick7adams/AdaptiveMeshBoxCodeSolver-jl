@@ -17,6 +17,7 @@ using GeometryBasics
 using Colorfy
 using FMM2D
 using IterativeSolvers, LinearAlgebra
+using BenchmarkTools
 
 @enum GEOS null=0 cut=1 regular=2 contains=3 outside=4
 
@@ -473,6 +474,7 @@ function getBoundaryPoints(bndry_mesh)
         end
         return compute_verts, compute_orientations
     end
+    # start = time_ns()
     for (i, E) in enumerate(Inti.element_types(bndry_mesh))
         connectivity = Inti.connectivity(bndry_mesh, E)
         orientation = Inti.orientation(bndry_mesh, E)
@@ -480,6 +482,8 @@ function getBoundaryPoints(bndry_mesh)
         append!(verts, tmp_verts)
         append!(orientations, tmp_orientations)
     end
+    # end_time = time_ns() - start
+    # println(end_time * 1e-9)
     verts[1:end-1], orientations
 end
 
@@ -642,7 +646,7 @@ function extractQuadtreeMesh(mesh)
     return views
 end
 
-function createQuadtreeMesh(mesh, forcing_func, meshsize, max_triangle_size, parametrizations; return_quadtree_mesh = false)
+function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64, parametrizations::Vector{Function}; return_quadtree_mesh = false)
     # Creates the meshes describing the boundary region and the quadtree
     gmsh.option.setNumber("General.Verbosity", 3)
 
@@ -698,6 +702,12 @@ end
 # gmsh.open("testing.msh")
 # msh = Inti.import_mesh(; dim = 2)
 # calculateMeshvals(msh)
+mesh = createMesh(0.25, 0.25)
+gmsh.initialize()
+parametrizations::Vector{Function} = [(x) -> [cos(2*pi*x), sin(2*pi*x)]]
+createQuadtreeMesh(mesh, (x) -> 1, 0.25, 0.25, parametrizations)
+# quadtree_mesh = createQuadtreeMesh(mesh, (x) -> 1, 0.25, 0.25, [(x) -> [cos(2*pi*x), sin(2*pi*x)]])
+# showMesh(quadtree_mesh)
 
 
 
@@ -717,11 +727,6 @@ end
 #    - right now we just cap the size of triangle formed for every boundary to meshsize. While the external boundary should have
 #      meshsize-sized triangles, we shouldn't require every boundary to be like this, especially inner boundaries
 # - fix issues with boundaries sometimes ignoring quads that are closer than other quads that get cut (prob issue with quad classification)
-
-# TO DISCUSS
-# - Issues with curving a given mesh (association is one-to-one)
-# - Progress with green's theorem equivalency
-# - Issues with domain quadrature over square regions
 
 # sizing mesh
 # set scalar field to determine local h value (determined by boundary h value)

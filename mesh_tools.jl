@@ -2,7 +2,7 @@
 using Inti, Meshes, CairoMakie
 using Gmsh
 
-order = 3
+order = 1
 
 function distance(a, b)
     return sqrt((a[1] - b[1])^2 + (a[2] - b[2])^2)

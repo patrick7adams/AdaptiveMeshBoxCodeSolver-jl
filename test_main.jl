@@ -361,7 +361,8 @@ function test_simple_quadtree_mesh_area()
     forcing_function = (x) -> 1
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -400,7 +401,8 @@ function test_simple_quadtree_mesh_zero()
     forcing_function = (x) -> 0
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -425,7 +427,8 @@ function test_simple_quadtree_mesh_negative_area()
     forcing_function = (x) -> -1
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -450,7 +453,8 @@ function test_simple_quadtree_mesh_linear_x()
     forcing_function = (x) -> x[1]
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -475,7 +479,8 @@ function test_simple_quadtree_mesh_linear_y()
     forcing_function = (x) -> x[2]
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -500,7 +505,8 @@ function test_simple_quadtree_mesh_quadratic_x()
     forcing_function = (x) -> x[1]^2
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -525,7 +531,8 @@ function test_simple_quadtree_mesh_quadratic_y()
     forcing_function = (x) -> x[2]^2
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -550,7 +557,8 @@ function test_simple_quadtree_mesh_quadratic_xy()
     forcing_function = (x) -> x[1]*x[2]
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -575,7 +583,8 @@ function test_simple_quadtree_mesh_high_order_x()
     forcing_function = (x) -> x[1]^100
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -600,7 +609,8 @@ function test_simple_quadtree_mesh_high_order_y()
     forcing_function = (x) -> x[2]^100
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -625,7 +635,8 @@ function test_simple_quadtree_mesh_high_order_xy()
     forcing_function = (x) -> x[1]^51 * x[2]^51
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -650,7 +661,8 @@ function test_simple_quadtree_mesh_sin_x()
     forcing_function = (x) -> sin(x[1])
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -675,7 +687,8 @@ function test_simple_quadtree_mesh_sin_y()
     forcing_function = (x) -> sin(x[2])
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -700,7 +713,8 @@ function test_simple_quadtree_mesh_sin_xy()
     forcing_function = (x) -> sin(x[1]*x[2])
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -725,7 +739,8 @@ function test_simple_quadtree_mesh_sin_x_cos_y()
     forcing_function = (x) -> sin(x[1]) * cos(x[2])
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -750,7 +765,8 @@ function test_simple_quadtree_mesh_exp_xy()
     forcing_function = (x) -> exp(x[1]+x[2])
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -775,7 +791,8 @@ function test_simple_quadtree_mesh_spike()
     forcing_function = (x) -> exp(-100 * (x[1]^2+x[2]^2))
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -809,7 +826,8 @@ function test_simple_quadtree_greens_theorem()
     forcing_function = (x) -> dQdx(x...) - dPdy(x...)
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(2*pi*x), sin(2*pi*x)]])
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
 
     # println(Inti.entities(quadtree_mesh))
     showMesh(quadtree_mesh)
@@ -841,7 +859,8 @@ function test_simple_quadtree_mesh_quadratures(meshsize)
     forcing_function = (x) -> 1
 
     gmsh.initialize()
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, [(x) -> [cos(x*2*pi), sin(x*2*pi)]]; return_quadtree_mesh=true)
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations; return_quadtree_mesh=true)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     boundary = get_boundary(quadtree_mesh)
@@ -994,10 +1013,10 @@ end
 
 # tests take hella long but they all pass!
 
-@testset "hi" begin 
+# @testset "hi" begin 
 #     # test_simple_triangle_mesh_area()
 #     # test_simple_quadtree_mesh_area()
-#     # test_simple_quadtree_greens_theorem()
+    # test_simple_quadtree_greens_theorem()
     # test_simple_quadtree_mesh_quadratures(0.4)
     # test_simple_quadtree_mesh_quadratures(0.3)
     # test_simple_quadtree_mesh_quadratures(0.2)
@@ -1012,29 +1031,40 @@ end
     # test_simple_triangle_mesh_quadratures(0.075)
     # test_simple_triangle_mesh_quadratures(0.05)
     # test_simple_triangle_mesh_quadratures(0.025)
-end;
+# end;
 
 # test_simple_quadtree_greens_theorem()
 
-# meshsize = 0.4
-# mesh = createMesh(meshsize, meshsize)
-# # showMesh(mesh)
-# parametrizations = [(x) -> [cos(2*x*pi), sin(2*x*pi)]]
-# boundary_mesh, quadtree_mesh = createQuadtreeMesh(mesh, x -> 1.0, 0.4, 0.4, parametrizations; curve_mesh = true)
-# println(Inti.entities(boundary_mesh))
+meshsize = 0.4
+mesh = createMesh(meshsize, meshsize)
+# showMesh(mesh)
+gmsh.initialize()
+parametrizations::Vector{Function} = [(x) -> [cos(2*x*pi), sin(2*x*pi)]]
+quadtree_mesh = createQuadtreeMesh(mesh, x -> 1.0, 0.4, 0.4, parametrizations)
+println(Inti.entities(quadtree_mesh))
 
-# dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, boundary_mesh)
+dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
 # quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
 # dom_quad = Inti.Quadrature(boundary_mesh[dom]; qorder = 10)
 # quadtree_dom_quad = Inti.Quadrature(quadtree_mesh[quadtree_dom]; qorder = 10)
 # area = Inti.integrate(x -> 1.0, dom_quad) + Inti.integrate(x -> 1.0, quadtree_dom_quad)
 # println(area - pi)
+dict = Dict{Inti.EntityKey, Function}()
+for entity in Inti.entities(quadtree_mesh)
+    if Inti.geometric_dimension(entity) == 2
+        l = Inti.labels(entity)
+        if "Quadtree" in l
+            dict[entity] = (x) -> [x, x]
+        elseif "Boundary 1" in l
+            dict[entity] = parametrizations[1]
+        end
+    end
+end
 
-
-# crv_mesh = Inti.curve_mesh(boundary_mesh, parametrizations[1], 6)
-# crv_dom_quad = Inti.Quadrature(crv_mesh[dom]; qorder = 10)
-# area = Inti.integrate(x -> 1.0, crv_dom_quad) + Inti.integrate(x -> 1.0, quadtree_dom_quad)
-# println(area - pi)
+crv_mesh = Inti.curve_mesh(quadtree_mesh, dict, 6)
+crv_dom_quad = Inti.Quadrature(crv_mesh[dom]; qorder = 10)
+area = Inti.integrate(x -> 1.0, crv_dom_quad)
+println(area - pi)
 
 # forcing_function = (x) -> 1
 # gmsh.initialize()
