@@ -810,6 +810,178 @@ function test_simple_quadtree_mesh_spike()
     @test result ≈ 0.0314159 atol=1e-6
 end
 
+function area_from_boundary_mesh(boundary_mesh)
+    area = 0
+    for e in Inti.elements(boundary_mesh)
+        verts = Vector([(point[1], point[2]) for point in e.vals])
+        area += verts[1][1]*verts[2][2] - verts[2][1]*verts[1][2]
+    end
+    return 0.5 * abs(area)
+end
+
+function test_simple_quadtree_vs_triangle_mesh_area()
+    meshsize = 0.2
+    mesh = createMesh(meshsize, meshsize*2)
+
+    forcing_function = (x) -> 1
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize*2, parametrizations)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    # for element in Inti.elements(dom_mesh)
+    #     if typeof(element) == Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, SVector{2, Float64}}
+    #         println("PP")
+    #     elseif typeof(element) == Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, SVector{2, Float64}}
+    #         println("QQ")
+    #     end
+    # end
+    E = Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, SVector{2, Float64}}
+    polygon_points = map((x) -> Inti.vertices(x), Inti.elements(dom_mesh, E))
+    typed_polygon_points = Vector{Vector{Tuple{Float64, Float64}}}()
+    x_points = []
+    for polygon in polygon_points
+        points = Vector{Tuple{Float64, Float64}}()
+        for point in polygon
+            push!(points, (point[1], point[2]))
+            push!(x_points, point[2])
+        end
+        push!(typed_polygon_points, points)
+    end
+    boundary = PolygonAlgorithms.union_geometry(typed_polygon_points...)[1]
+    # println(boundary)
+    # println(PolygonAlgorithms.y_coords(boundary))
+    # println(maximum(x_points))
+    # println(maximum(PolygonAlgorithms.y_coords(boundary)) - maximum(x_points))
+    # println(PolygonAlgorithms.y_coords(boundary))
+    # println(PolygonAlgorithms.y_coords(boundary)[1][1] + PolygonAlgorithms.y_coords(boundary)[1][2])
+    E = Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, SVector{2, Float64}}
+    polygon_points = map((x) -> Inti.vertices(x), Inti.elements(dom_mesh, E))
+    for polygon in polygon_points
+        for point in polygon
+            # if PolygonAlgorithms.contains(boundary, (point[1], point[2]), atol=1e-15)
+            #     println(point)
+            # end
+        end
+    end
+
+    # typed_polygon_points = [PolygonAlgorithms.Polygon([Tuple(point[1], point[2]) for point in polygon]) for polygon in polygon_points] 
+    # println(typed_polygon_points)
+    # println(PolygonAlgorithms.union_geometry(typed_polygon_points))
+    # boundary_points = [PolygonAlgorithms.union_geometry(typed_polygon_points[i]...) for polygon in polygon_points if length(remove_points[i]) > 0]
+
+    boundary_mesh_area = area_from_boundary_mesh(boundary_mesh)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    triangle_dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, mesh)
+    triangle_boundary = Inti.boundary(triangle_dom)
+
+    triangle_dom_mesh = Inti.view(mesh, triangle_dom)
+    triangle_boundary_mesh = Inti.view(mesh, triangle_boundary)
+
+    triangle_boundary_mesh_area = area_from_boundary_mesh(triangle_boundary_mesh)
+
+    triangle_dom_quad = Inti.Quadrature(triangle_dom_mesh; qorder = 4)
+    triangle_boundary_quad = Inti.Quadrature(triangle_boundary_mesh; qorder = 6)
+
+    test_function = (q) -> forcing_function((q.coords[1], q.coords[2]))
+
+    domain_mesh_area = Inti.integrate(test_function, dom_quad)
+    triangle_domain_mesh_area = Inti.integrate(test_function, triangle_dom_quad)
+
+    showMesh(mesh)
+    showMesh(quadtree_mesh)
+
+    println("Triangle mesh domain area = ", triangle_domain_mesh_area)
+    println("Quadtree mesh domain area = ", domain_mesh_area)
+    println("Difference in mesh domain areas = ", abs(triangle_domain_mesh_area - domain_mesh_area))
+    println("Triangle mesh boundary area = ", triangle_boundary_mesh_area)
+    println("Quadtree mesh boundary area = ", boundary_mesh_area)
+    println("Difference in mesh boundary areas = ", abs(triangle_boundary_mesh_area - boundary_mesh_area))
+    println("Triangle mesh domain and boundary area difference = ", abs(triangle_domain_mesh_area - triangle_boundary_mesh_area))
+    println("Quadtree mesh domain and boundary area difference = ", abs(domain_mesh_area - boundary_mesh_area))
+end
+
+function test_simple_quadtree_vs_triangle_mesh_linear_x()
+    meshsize = 0.025
+    mesh = createMesh(meshsize, meshsize)
+
+    forcing_function = (x) -> x[1]
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    triangle_dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, mesh)
+    triangle_boundary = Inti.boundary(triangle_dom)
+
+    triangle_dom_mesh = Inti.view(mesh, triangle_dom)
+    triangle_boundary_mesh = Inti.view(mesh, triangle_boundary)
+
+    triangle_dom_quad = Inti.Quadrature(triangle_dom_mesh; qorder = 4)
+    triangle_boundary_quad = Inti.Quadrature(triangle_boundary_mesh; qorder = 6)
+
+    test_function = (q) -> forcing_function((q.coords[1], q.coords[2]))
+
+    result = Inti.integrate(test_function, dom_quad)
+    triangle_result = Inti.integrate(test_function, triangle_dom_quad)
+
+    @test result ≈ triangle_result atol=1e-15
+end
+
+function test_simple_quadtree_vs_triangle_mesh_linear_y()
+    meshsize = 0.025
+    mesh = createMesh(meshsize, meshsize)
+
+    forcing_function = (x) -> x[2]
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    triangle_dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, mesh)
+    triangle_boundary = Inti.boundary(triangle_dom)
+
+    triangle_dom_mesh = Inti.view(mesh, triangle_dom)
+    triangle_boundary_mesh = Inti.view(mesh, triangle_boundary)
+
+    triangle_dom_quad = Inti.Quadrature(triangle_dom_mesh; qorder = 4)
+    triangle_boundary_quad = Inti.Quadrature(triangle_boundary_mesh; qorder = 6)
+
+    test_function = (q) -> forcing_function((q.coords[1], q.coords[2]))
+
+    result = Inti.integrate(test_function, dom_quad)
+    triangle_result = Inti.integrate(test_function, triangle_dom_quad)
+
+    @test result ≈ triangle_result atol=1e-15
+end
+
 function test_simple_quadtree_greens_theorem()
     meshsize = 0.25
     mesh = createMesh(meshsize, meshsize)
@@ -851,6 +1023,372 @@ function test_simple_quadtree_greens_theorem()
     println(0.5*computed_boundary_int - pi)
     println(0.5*computed_domain_int - pi)
     println("Error in values: ", abs(computed_boundary_int - computed_domain_int))
+end
+
+function test_simple_quadtree_greens_third_identity_linear_x()
+    meshsize = 0.05
+    mesh = createMesh(meshsize, meshsize)
+    # showMesh(mesh)
+
+    x_test = (1, 1) # point just outside of the region
+    u = (x) -> x[1]
+    # check these eqns lol
+    partial_x_u = (x) -> 1.0
+    partial_y_u = (x) -> 0.0
+    laplacian_u = (x) -> 0.0
+    greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+    partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+    partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+    normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+    normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+    boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+
+    domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+    expected_u_val = u(x_test)
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, u, meshsize, meshsize, parametrizations)
+
+    # showMesh(quadtree_mesh)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+    domain_integral = Inti.integrate(domain_function, dom_quad)
+    calculated_u_val = domain_integral - boundary_integral
+
+    println("Boundary integral = ", Inti.integrate(boundary_function, boundary_quad))
+    println("Domain Integral = ", Inti.integrate(domain_function, dom_quad))
+    println("Difference = ", calculated_u_val)
+    @test 0.0 ≈ calculated_u_val atol=1e-15
+end
+
+function test_simple_quadtree_greens_third_identity_linear_y()
+    meshsize = 0.05
+    mesh = createMesh(meshsize, meshsize)
+    # showMesh(mesh)
+
+    x_test = (1, 1) # point just outside of the region
+    u = (x) -> x[2]
+    # check these eqns lol
+    partial_x_u = (x) -> 0.0
+    partial_y_u = (x) -> 1.0
+    laplacian_u = (x) -> 0.0
+    greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+    partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+    partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+    normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+    normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+    boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+
+    domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+    expected_u_val = u(x_test)
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, u, meshsize, meshsize, parametrizations)
+
+    # showMesh(quadtree_mesh)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+    domain_integral = Inti.integrate(domain_function, dom_quad)
+    calculated_u_val = domain_integral - boundary_integral
+
+    println("Boundary integral = ", Inti.integrate(boundary_function, boundary_quad))
+    println("Domain Integral = ", Inti.integrate(domain_function, dom_quad))
+    println("Difference = ", calculated_u_val)
+    @test 0.0 ≈ calculated_u_val atol=1e-15
+end
+
+function test_simple_quadtree_greens_third_identity_simple_forcing()
+    meshsize = 0.05
+    mesh = createMesh(meshsize, meshsize)
+    # showMesh(mesh)
+
+    x_test = (1, 1) # point just outside of the region
+    u = (x) -> 1.0
+    # check these eqns lol
+    partial_x_u = (x) -> 0.0
+    partial_y_u = (x) -> 0.0
+    laplacian_u = (x) -> 0.0
+    greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+    partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+    partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+    normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+    normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+    boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+
+    domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, u, meshsize, meshsize, parametrizations)
+
+    # showMesh(quadtree_mesh)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+    domain_integral = Inti.integrate(domain_function, dom_quad)
+    calculated_u_val = domain_integral - boundary_integral
+
+    println("Boundary integral = ", Inti.integrate(boundary_function, boundary_quad))
+    println("Domain Integral = ", Inti.integrate(domain_function, dom_quad))
+    println("Difference = ", calculated_u_val)
+    @test 0.0 ≈ calculated_u_val atol=1e-15
+end
+
+function test_simple_quadtree_greens_third_identity_quadratic()
+    meshsize = 0.05
+    mesh = createMesh(meshsize, meshsize)
+    # showMesh(mesh)
+
+    x_test = (1, 1) # point just outside of the region
+    u = (x) -> x[1]^2 + x[2]^2
+    # check these eqns lol
+    partial_x_u = (x) -> 2*x[1]
+    partial_y_u = (x) -> 2*x[2]
+    laplacian_u = (x) -> 4.0
+    greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+    partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+    partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+    normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+    normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+    boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+
+    domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+    expected_u_val = u(x_test)
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, u, meshsize, meshsize, parametrizations)
+
+    # showMesh(quadtree_mesh)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+    domain_integral = Inti.integrate(domain_function, dom_quad)
+    calculated_u_val = domain_integral - boundary_integral
+
+    println("Boundary integral = ", Inti.integrate(boundary_function, boundary_quad))
+    println("Domain Integral = ", Inti.integrate(domain_function, dom_quad))
+    println("Difference = ", calculated_u_val)
+    @test 0.0 ≈ calculated_u_val atol=1e-15
+end
+
+function test_simple_quadtree_greens_third_identity_sin_term()
+    meshsize = 0.05
+    mesh = createMesh(meshsize, meshsize)
+    # showMesh(mesh)
+
+    # for k in [0.25, 0.5, 1.0, 2.0, 4.0]
+    for k in [4.0]
+        x_test = (1, 1) # point just outside of the region
+        u = (x) -> sin(k*pi*x[1])*sin(k*pi*x[2])
+        # check these eqns lol
+        partial_x_u = (x) -> k*pi*cos(k*pi*x[1])*sin(k*pi*x[2])
+        partial_y_u = (x) -> k*pi*sin(k*pi*x[1])*cos(k*pi*x[2])
+        laplacian_u = (x) -> -2*k^2*pi^2*sin(k*pi*x[1])*sin(k*pi*x[2])
+        greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+        partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+        partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+        normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+        normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+        boundary_fn1 = (q) -> greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal)
+        boundary_fn2 = (q) -> u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal)
+        # boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+        #                             u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+        boundary_function = (q) -> boundary_fn1(q) - boundary_fn2(q)
+
+        domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+        # expected_u_val = u(x_test)
+        forcing_func = (x) -> greens_fn(x_test, x) * laplacian_u(x)
+
+        gmsh.initialize()
+        parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+        quadtree_mesh = createQuadtreeMesh(mesh, forcing_func, meshsize, meshsize, parametrizations)
+
+        showMesh(quadtree_mesh)
+
+        dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+        boundary = get_boundary(quadtree_mesh)
+
+        dom_mesh = Inti.view(quadtree_mesh, dom)
+        println(dom_mesh)
+        boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+        dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+        boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+        triangle_dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, mesh)
+        triangle_dom_mesh = Inti.view(mesh, triangle_dom)
+        triangle_quad = Inti.Quadrature(triangle_dom_mesh; qorder = 17) # 17 is highest order
+
+        # boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+        boundary_int1 = Inti.integrate(boundary_fn1, boundary_quad)
+        boundary_int2 = Inti.integrate(boundary_fn2, boundary_quad)
+        boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+        domain_integral = Inti.integrate(domain_function, dom_quad)
+        calculated_u_val = domain_integral - boundary_integral
+
+        # exact_domain_integral = Inti.integrate(domain_function, triangle_quad)
+        dom_quad_highorder = Inti.Quadrature(dom_mesh; qorder = 17)
+        exact_domain_integral = Inti.integrate(domain_function, dom_quad_highorder)
+        exact_triangle_domain_integral = Inti.integrate(domain_function, triangle_quad)
+
+        # vals_lowres = Dict{DataType, Float64}()
+        # vals_highres = Dict{DataType, Float64}()
+        # for E in Inti.element_types(dom_mesh)
+        #     vals_lowres[E] = 0.0
+        #     vals_highres[E] = 0.0
+        #     qtags_lowres = dom_quad.etype2qtags[E]
+        #     qtags_highres = dom_quad_highorder.etype2qtags[E]
+        #     for row in qtags_lowres
+        #         for val in row
+        #             qtag = val
+        #             q = dom_quad[qtag]
+        #             vals_lowres[E] += domain_function(q) * q.weight
+        #         end
+        #     end
+        #     for row in qtags_highres
+        #         for val in row
+        #             qtag = val
+        #             q = dom_quad_highorder[qtag]
+        #             vals_highres[E] += domain_function(q) * q.weight
+        #         end
+        #     end
+        # end
+        # for E in Inti.element_types(dom_mesh)
+        #     println("Element type = ", E)
+        #     println("Lowres value for type = ", vals_lowres[E])
+        #     println("highres value for type = ", vals_highres[E])
+        #     println("Error in values = ", abs(vals_highres[E] - vals_lowres[E]))
+        # end
+
+        total_error = abs(calculated_u_val)
+        quadrature_error = abs(domain_integral - exact_domain_integral)
+        # this quadrature error can get down very low when degree of interpolating polynomial is low
+        # thus, when the quadtree is highly refined, increasing quadrature points significantly does not decrease error
+        geometry_error = abs(exact_triangle_domain_integral - exact_domain_integral)
+        # this is the current dominant error, the error between the integral taken over the triangle mesh and
+        # the error on the proper quadtree domain. 
+
+        println("---------")
+        println("k = ", k)
+        println("boundary_int1 = ", boundary_int1)
+        println("boundary_int2 = ", boundary_int2)
+        println("Whole boundary integral = ", boundary_integral)
+        println("Domain integral = ", domain_integral)
+        println("Quadrature error = ", quadrature_error)
+        println("Geometry error = ", geometry_error)
+        println("Total error = ", total_error)
+        println("Quadrature error + geometry error = ", quadrature_error + geometry_error)
+        println("Boundary integral = ", Inti.integrate(boundary_function, boundary_quad))
+        println("Domain Integral = ", Inti.integrate(domain_function, dom_quad))
+        println("Difference = ", calculated_u_val)
+        @test 0.0 ≈ calculated_u_val atol=1e-15
+    # @test expected_u_val ≈ calculated_u_val atol=1e-15
+    end
+end
+
+function test_simple_quadtree_greens_third_identity_complex_forcing()
+    meshsize = 0.025
+    mesh = createMesh(meshsize, meshsize)
+    # showMesh(mesh)
+
+    x_test = (1, 1) # point just outside of the region
+    u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
+    # check these eqns lol
+    partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+    partial_y_u = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+    laplacian_u = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+    greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+    partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+    partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+    normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+    normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+    boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+
+    domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+    expected_u_val = u(x_test)
+
+    gmsh.initialize()
+    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
+    quadtree_mesh = createQuadtreeMesh(mesh, u, meshsize, meshsize, parametrizations)
+
+    showMesh(quadtree_mesh)
+
+    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+    boundary = get_boundary(quadtree_mesh)
+
+    dom_mesh = Inti.view(quadtree_mesh, dom)
+    boundary_mesh = Inti.view(quadtree_mesh, boundary)
+
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
+
+    boundary_integral = Inti.integrate(boundary_function, boundary_quad)
+    domain_integral = Inti.integrate(domain_function, dom_quad)
+    calculated_u_val = domain_integral - boundary_integral
+
+    println("Boundary integral = ", Inti.integrate(boundary_function, boundary_quad))
+    println("Domain Integral = ", Inti.integrate(domain_function, dom_quad))
+    println("Difference = ", calculated_u_val)
+    @test 0.0 ≈ calculated_u_val atol=1e-15
 end
 
 function test_simple_quadtree_mesh_quadratures(meshsize)
@@ -901,7 +1439,7 @@ function test_simple_triangle_mesh_quadratures(meshsize)
     elements = []
     for element in Inti.elements(Inti.view(mesh, dom))
         verts = Vector([(point[1], point[2]) for point in element.vals])
-        area = order3_triangle_area_from_nodes(verts)
+        area = 0.5 * (verts[1][1] * (verts[2][2] - verts[3][2]) + verts[2][1] * (verts[3][2] - verts[1][2]) + verts[3][1] * (verts[1][2] - verts[2][2]))
         # if [Inti.center(element)[1], Inti.center(element)[2]] == [-0.35404532580101067, 0.7382086437260025]
         #     println(verts)
         # end
@@ -1017,6 +1555,15 @@ end
 #     # test_simple_triangle_mesh_area()
 #     # test_simple_quadtree_mesh_area()
     # test_simple_quadtree_greens_theorem()
+    # test_simple_quadtree_greens_third_identity_simple_forcing()
+    # test_simple_quadtree_greens_third_identity_linear_x()
+    # test_simple_quadtree_greens_third_identity_linear_y()
+    # test_simple_quadtree_greens_third_identity_quadratic()
+    # test_simple_quadtree_greens_third_identity_sin_term()
+    # test_simple_quadtree_vs_triangle_mesh_area()
+    # test_simple_quadtree_vs_triangle_mesh_linear_x()
+    # test_simple_quadtree_vs_triangle_mesh_linear_y()
+    # test_simple_quadtree_greens_third_identity_complex_forcing()
     # test_simple_quadtree_mesh_quadratures(0.4)
     # test_simple_quadtree_mesh_quadratures(0.3)
     # test_simple_quadtree_mesh_quadratures(0.2)
@@ -1033,38 +1580,48 @@ end
     # test_simple_triangle_mesh_quadratures(0.025)
 # end;
 
+@testset "test_greens_identity" begin
+    # test_simple_quadtree_greens_third_identity_simple_forcing()
+    # test_simple_quadtree_greens_third_identity_linear_x()
+    # test_simple_quadtree_greens_third_identity_linear_y()
+    # test_simple_quadtree_greens_third_identity_quadratic()
+    # test_simple_quadtree_greens_third_identity_sin_term()
+    # test_simple_quadtree_greens_third_identity_complex_forcing()
+    test_simple_quadtree_vs_triangle_mesh_area()
+end;
+
 # test_simple_quadtree_greens_theorem()
 
-meshsize = 0.4
-mesh = createMesh(meshsize, meshsize)
-# showMesh(mesh)
-gmsh.initialize()
-parametrizations::Vector{Function} = [(x) -> [cos(2*x*pi), sin(2*x*pi)]]
-quadtree_mesh = createQuadtreeMesh(mesh, x -> 1.0, 0.4, 0.4, parametrizations)
-println(Inti.entities(quadtree_mesh))
+# meshsize = 0.4
+# mesh = createMesh(meshsize, meshsize)
+# # showMesh(mesh)
+# gmsh.initialize()
+# parametrizations::Vector{Function} = [(x) -> [cos(2*x*pi), sin(2*x*pi)]]
+# quadtree_mesh = createQuadtreeMesh(mesh, x -> 1.0, 0.4, 0.4, parametrizations)
+# println(Inti.entities(quadtree_mesh))
 
-dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
-# quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
-# dom_quad = Inti.Quadrature(boundary_mesh[dom]; qorder = 10)
-# quadtree_dom_quad = Inti.Quadrature(quadtree_mesh[quadtree_dom]; qorder = 10)
-# area = Inti.integrate(x -> 1.0, dom_quad) + Inti.integrate(x -> 1.0, quadtree_dom_quad)
+# dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+# # quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
+# # dom_quad = Inti.Quadrature(boundary_mesh[dom]; qorder = 10)
+# # quadtree_dom_quad = Inti.Quadrature(quadtree_mesh[quadtree_dom]; qorder = 10)
+# # area = Inti.integrate(x -> 1.0, dom_quad) + Inti.integrate(x -> 1.0, quadtree_dom_quad)
+# # println(area - pi)
+# dict = Dict{Inti.EntityKey, Function}()
+# for entity in Inti.entities(quadtree_mesh)
+#     if Inti.geometric_dimension(entity) == 2
+#         l = Inti.labels(entity)
+#         if "Quadtree" in l
+#             dict[entity] = (x) -> [x, x]
+#         elseif "Boundary 1" in l
+#             dict[entity] = parametrizations[1]
+#         end
+#     end
+# end
+
+# crv_mesh = Inti.curve_mesh(quadtree_mesh, dict, 6)
+# crv_dom_quad = Inti.Quadrature(crv_mesh[dom]; qorder = 10)
+# area = Inti.integrate(x -> 1.0, crv_dom_quad)
 # println(area - pi)
-dict = Dict{Inti.EntityKey, Function}()
-for entity in Inti.entities(quadtree_mesh)
-    if Inti.geometric_dimension(entity) == 2
-        l = Inti.labels(entity)
-        if "Quadtree" in l
-            dict[entity] = (x) -> [x, x]
-        elseif "Boundary 1" in l
-            dict[entity] = parametrizations[1]
-        end
-    end
-end
-
-crv_mesh = Inti.curve_mesh(quadtree_mesh, dict, 6)
-crv_dom_quad = Inti.Quadrature(crv_mesh[dom]; qorder = 10)
-area = Inti.integrate(x -> 1.0, crv_dom_quad)
-println(area - pi)
 
 # forcing_function = (x) -> 1
 # gmsh.initialize()
