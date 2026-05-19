@@ -227,9 +227,9 @@ function refinementStage(forest, treeid, quadrant)
     quad_level = P4estTypes.level(quadrant)
     quad_coords = QuadToCoords(quadrant)
     formatted_coords = [quad_coords[1][1], quad_coords[3][1], quad_coords[1][2], quad_coords[3][2]]
-    if P4estTypes.coordinates(quadrant) == (167772160, 528482304) && P4estTypes.level(quadrant) == 7
-        println("HI")
-    end
+    # if P4estTypes.coordinates(quadrant) == (167772160, 528482304) && P4estTypes.level(quadrant) == 7
+    #     println("HI")
+    # end
     if GEO == regular
         if ~ResolvedSourceCheby(quadrant, forcing[], tol)
             return true
@@ -518,28 +518,33 @@ function getMeshBounds(msh)
     lb, ub
 end
 
-
-
-function createMeshWithInternalBoundary(boundary_points, internal_points, max_triangle_size, parametrizations)
+function createMeshWithInternalBoundary(boundary_points, internal_points, meshsize, max_triangle_size, parametrizations)
     surface_tags = []
     all_boundary_linetags = []
+    all_internal_linetags = []
     for i in 1:num_boundaries
-        boundary_label = string("Boundary ", i)
-        boundary_linetag = Inti.gmsh_curve(0, 1; npts = 100, meshsize = max_triangle_size) do s
-            return Inti.Point2D(parametrizations[i](s)[1], parametrizations[i](s)[2])
+        # boundary_linetag = Inti.gmsh_curve(0, 1; npts = 100, meshsize = max_triangle_size) do s
+        #     return Inti.Point2D(parametrizations[i](s)[1], parametrizations[i](s)[2])
+        # end
+        points = []
+        for t in range(0, stop = 1, length=Int32(ceil(100 / meshsize)))[1:end-1]
+            point = (parametrizations[i](t)[1], parametrizations[i](t)[2])
+            push!(points, gmsh.model.geo.addPoint(point..., 0.0))
         end
-        # boundary_linetag = gmsh.model.occ.addCircle(0.0, 0.0, 0.0, 1.0)
-        boundary_curve_loop = gmsh.model.occ.addCurveLoop([boundary_linetag])
-        internal_linetags, internal_curve_loop = createCurveLoop(internal_points[i], max_triangle_size)
+        push!(points, points[1])
+        polyloop = gmsh.model.geo.addPolyline(points)
+        boundary_curve_loop = gmsh.model.geo.addCurveLoop([polyloop])
+        internal_curve_loop, internal_linetags = createInternalCurveLoop(internal_points[i], max_triangle_size)
         if bndry_mesh_orientations[i] == 1
-            surf = gmsh.model.occ.addPlaneSurface([boundary_curve_loop, internal_curve_loop])
+            surf = gmsh.model.geo.addPlaneSurface([boundary_curve_loop, internal_curve_loop])
         else
-            surf = gmsh.model.occ.addPlaneSurface([internal_curve_loop, boundary_curve_loop])
+            surf = gmsh.model.geo.addPlaneSurface([internal_curve_loop, boundary_curve_loop])
         end
         push!(surface_tags, surf)
-        push!(all_boundary_linetags, boundary_linetag)
+        push!(all_boundary_linetags, polyloop)
+        push!(all_internal_linetags, internal_linetags...)
     end
-    return all_boundary_linetags, surface_tags
+    return all_boundary_linetags, all_internal_linetags, surface_tags
 end
 
 function createQuadtree(maxlevel = -1)
@@ -654,18 +659,22 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
     
     forest = createQuadtree()
 
-    internalBoundaryPoints = getInternalBoundaryPoints(forest[1])    
+    internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
     
     internalBoundaries = filterBoundaries(internalBoundaryPoints)
         
     culledInternalBoundaries = cullBoundaryPoints(internalBoundaries)
 
+    # println(culledInternalBoundaries)
+
     gmsh.model.add("BoundaryRegions")
 
-    boundary_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, culledInternalBoundaries, max_triangle_size, parametrizations)
+    boundary_linetags, internal_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, culledInternalBoundaries, meshsize, max_triangle_size, parametrizations)
 
-    gmsh.model.occ.synchronize()
+    gmsh.model.geo.synchronize()
     gmsh.model.mesh.removeDuplicateNodes()
+    # gmsh.option.setNumber("Mesh.MeshSizeMax", max_triangle_size)
+    gmsh.model.mesh.generate(2)
 
     for i in 1:num_boundaries
         boundary_str = string("Boundary ", i)
@@ -676,18 +685,22 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
     if return_quadtree_mesh
         gmsh.model.add("quadtreeRegions")
     end
-    surface_tag = gmsh.model.addDiscreteEntity(2)
+
+    surface_tag = gmsh.model.addDiscreteEntity(2, -1, internal_linetags)
 
     createCombinedMesh(forest, surface_tag)
 
-    gmsh.model.occ.synchronize()
+    gmsh.model.geo.synchronize()
 
     gmsh.model.addPhysicalGroup(2, [surface_tag], -1, "Quadtree")
 
     gmsh.model.mesh.removeDuplicateNodes()
-    gmsh.option.setNumber("Mesh.MeshSizeMax", max_triangle_size)
-    gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
-    gmsh.model.mesh.generate(2)
+    # gmsh.option.setNumber("Mesh.MeshSizeMin", meshsize)
+    # gmsh.option.setNumber("Mesh.MeshSizeFromParametricPoints", 1)
+    # gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+    # gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
+    # gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+    # gmsh.model.mesh.generate(2)
     gmsh.model.mesh.setOrder(order)
     gmsh.write("combined.msh")
     combined_msh = Inti.import_mesh(; dim = 2)
@@ -696,29 +709,31 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
     return combined_msh
 end
 
+function calculateVolumePotential(dom_mesh, f)
+    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
+
+    greens_fn = (r, x) -> 1/(2pi) * log(distance(x, r))
+
+    volume_potential = (x) -> Inti.integrate((q) -> f(q.coords) * greens_fn(x, q.coords), dom_quad)
+    return volume_potential
+end
+
 # driver code
 # gmsh.initialize()
 # gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
 # gmsh.open("testing.msh")
 # msh = Inti.import_mesh(; dim = 2)
 # calculateMeshvals(msh)
-mesh = createMesh(0.25, 0.25)
-gmsh.initialize()
-parametrizations::Vector{Function} = [(x) -> [cos(2*pi*x), sin(2*pi*x)]]
-createQuadtreeMesh(mesh, (x) -> 1, 0.25, 0.25, parametrizations)
-# quadtree_mesh = createQuadtreeMesh(mesh, (x) -> 1, 0.25, 0.25, [(x) -> [cos(2*pi*x), sin(2*pi*x)]])
+# mesh = createMesh(0.25, 0.25)
+# showMesh(mesh)
+
+# showMesh(mesh)
+# gmsh.initialize()
+# parametrizations::Vector{Function} = [(x) -> [cos(2*pi*x), sin(2*pi*x)]]
+# quadtree_mesh = createQuadtreeMesh(mesh, (x) -> 1, 0.25, 0.25, parametrizations)
 # showMesh(quadtree_mesh)
+# dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
 
-
-
-# getElementQualities
-# visualize hybrid mesh
-
-# PROBLEM WITH MESHING:
-# Some quads are associated with more than one boundary. Which should it mesh for?
-# temporarily going to choose the mesh with lower value
-
-# create inti mesh from forest, msh
 
 # TODO
 # - fix issues when boundaries are close

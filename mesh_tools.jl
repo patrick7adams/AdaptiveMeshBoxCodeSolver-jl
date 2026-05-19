@@ -50,15 +50,34 @@ function createCurveLoop(points, max_triangle_size)
     pointTags = []
     for i in 1:length(points)
         if distance(points[i], points[mod1(i+1, end)]) > 1e-6
-            push!(pointTags, gmsh.model.occ.addPoint(points[i]..., 0.0, max_triangle_size)) # TMP
+            push!(pointTags, gmsh.model.geo.addPoint(points[i]..., 0.0, max_triangle_size)) # TMP
         end
     end
     lineTags = []
-    for i in 1:length(pointTags)-1
-        push!(lineTags, gmsh.model.occ.addLine(pointTags[i], pointTags[i+1]))
+    for i in 1:length(pointTags)
+        push!(lineTags, gmsh.model.geo.addLine(pointTags[i], pointTags[mod1(i+1, length(pointTags))]))
     end
-    push!(lineTags, gmsh.model.occ.addLine(pointTags[end], pointTags[1]))
-    return lineTags, gmsh.model.occ.addCurveLoop(lineTags)
+    curve_loop = gmsh.model.geo.addCurveLoop(lineTags)
+    return curve_loop, lineTags
+end
+
+function createInternalCurveLoop(points, max_triangle_size)
+    pointTags = []
+    for i in 1:length(points)
+        if distance(points[i], points[mod1(i+1, end)]) > 1e-6
+            # first determine the size of the quad the point is associated with
+            size = min(distance(points[i], points[mod1(i+1, end)]), distance(points[i], points[mod1(i-1, end)]))
+            push!(pointTags, gmsh.model.geo.addPoint(points[i]..., 0.0, size)) # TMP
+        end
+    end
+    lineTags = []
+    for i in 1:length(pointTags)
+        lineTag = gmsh.model.geo.addLine(pointTags[i], pointTags[mod1(i+1, length(pointTags))])
+        gmsh.model.geo.mesh.setTransfiniteCurve(lineTag, 2)
+        push!(lineTags, lineTag)
+    end
+    curve_loop = gmsh.model.geo.addCurveLoop(lineTags)
+    return curve_loop, lineTags
 end
 
 function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
@@ -68,29 +87,33 @@ function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
     # Creates and returns a gmsh mesh to use
     gmsh.initialize()
     gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
-
+    loops = []
     if outside_curve == []
-        circle = Inti.gmsh_curve(0, 2pi; npts=100, meshsize=max_triangle_size) do s # this could be the problem? maybe not approximating this curve fully
-            return Inti.Point2D(cos(s), sin(s))
+        points = []
+        for t in range(0, stop = 2pi, length=Int32(ceil(100 / max_triangle_size)))[1:end-1]
+            point = (cos(t), sin(t))
+            push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
         end
-        # circle = gmsh.model.occ.addCircle(0.0, 0.0, 0.0, 1.0)
-        curve_loop = gmsh.model.occ.addCurveLoop([circle])
+        push!(points, points[1])
+        polyloop = gmsh.model.geo.addPolyline(points)
+        curve_loop = gmsh.model.geo.addCurveLoop([polyloop])
+        push!(loops, curve_loop)
     else
         curve_loop = createCurveLoop(outside_curve, max_triangle_size)
+        push!(loops, curve_loop)
     end
 
-    loops = [curve_loop]
     if holes != []
         for hole in holes
             hole_curve = createCurveLoop(hole, max_triangle_size)
             push!(loops, hole_curve)
         end
     end
-    surf = gmsh.model.occ.addPlaneSurface(loops)
+    surf = gmsh.model.geo.addPlaneSurface(loops)
     
-    gmsh.model.occ.synchronize()
-    gmsh.option.setNumber("Mesh.MeshSizeMax", max_triangle_size)
-    gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
+    gmsh.model.geo.synchronize()
+    # gmsh.option.setNumber("Mesh.MeshSizeMax", max_triangle_size)
+    # gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
     gmsh.model.mesh.generate(2)
     gmsh.model.mesh.setOrder(order)
     mesh = Inti.import_mesh(; dim = 2)
@@ -122,93 +145,4 @@ function get_boundary(mesh)
     # gets the boundary of the mesh according to my label system
     labels = getLabels()[2:end]
     return Inti.Domain((e) -> Inti.geometric_dimension(e) == 1 && length(Inti.labels(e)) > 0 && Inti.labels(e)[1] in labels, mesh)
-end
-
-using StaticArrays
-
-function cubic_lagrange_basis(t)
-    ts = (0.0, 1/3, 2/3, 1.0)
-
-    L = zeros(4)
-    dL = zeros(4)
-
-    for i in 1:4
-        # L_i(t)
-        num = 1.0
-        den = 1.0
-        for j in 1:4
-            if j != i
-                num *= t - ts[j]
-                den *= ts[i] - ts[j]
-            end
-        end
-        L[i] = num / den
-
-        # derivative L_i'(t)
-        s = 0.0
-        for k in 1:4
-            if k != i
-                prod = 1.0
-                for j in 1:4
-                    if j != i && j != k
-                        prod *= t - ts[j]
-                    end
-                end
-                s += prod
-            end
-        end
-        dL[i] = s / den
-    end
-
-    return L, dL
-end
-
-function cubic_edge_area_contribution(edge)
-    # Exact enough: 5-point Gauss-Legendre integrates degree <= 9 exactly.
-    # x(t)y'(t)-y(t)x'(t) is degree <= 4 for cubic edges.
-    qx = [
-        0.5 - 0.5*sqrt(5 + 2sqrt(10/7))/3,
-        0.5 - 0.5*sqrt(5 - 2sqrt(10/7))/3,
-        0.5,
-        0.5 + 0.5*sqrt(5 - 2sqrt(10/7))/3,
-        0.5 + 0.5*sqrt(5 + 2sqrt(10/7))/3,
-    ]
-
-    qw = [
-        (322 - 13sqrt(70)) / 1800,
-        (322 + 13sqrt(70)) / 1800,
-        64 / 225,
-        (322 + 13sqrt(70)) / 1800,
-        (322 - 13sqrt(70)) / 1800,
-    ]
-
-    val = 0.0
-
-    for (t, w) in zip(qx, qw)
-        L, dL = cubic_lagrange_basis(t)
-
-        x = sum(L[i]  * edge[i][1] for i in 1:4)
-        y = sum(L[i]  * edge[i][2] for i in 1:4)
-        dx = sum(dL[i] * edge[i][1] for i in 1:4)
-        dy = sum(dL[i] * edge[i][2] for i in 1:4)
-
-        val += w * (x * dy - y * dx)
-    end
-
-    return val
-end
-
-function order3_triangle_area_from_nodes(pts)
-    # calculates the exact order 3 triangle area with green's thm
-    edge1 = [pts[1],  pts[2], pts[3], pts[4]]
-    edge2 = [pts[4],  pts[7], pts[9], pts[10]]
-    edge3 = [pts[10], pts[8], pts[5], pts[1]]
-
-    A = 0.5 * (
-        cubic_edge_area_contribution(edge1) +
-        cubic_edge_area_contribution(edge2) +
-        cubic_edge_area_contribution(edge3)
-    )
-
-    return abs(A)
 end
