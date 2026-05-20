@@ -17,7 +17,7 @@ using GeometryBasics
 using Colorfy
 using FMM2D
 using IterativeSolvers, LinearAlgebra
-using BenchmarkTools
+# using BenchmarkTools
 
 @enum GEOS null=0 cut=1 regular=2 contains=3 outside=4
 
@@ -327,12 +327,12 @@ function getInternalBoundaryPoints(tree)
     # first find lowest quad level
     max_level = 0
     for quad in tree
+        GEO, DOM = get_GEO_DOM(quad)
         lvl = P4estTypes.level(quad)
-        if lvl > max_level
+        if (GEO == regular || GEO == cut) && lvl > max_level 
             max_level = lvl
         end
     end
-
     edge_list = []
     for boundary in 1:num_boundaries
         point_connection_dict = Dict{Tuple{Float64, Float64}, Set{Tuple{Float64, Float64}}}()
@@ -344,146 +344,78 @@ function getInternalBoundaryPoints(tree)
                 coords = QuadToCoords(quadrant)
                 for i in 1:4
                     # add edge for each point to connection dict
-                    point, right_point = coords[i], coords[mod1(i+1, 4)]
-                    if abs(point[1] - right_point[1]) < 1e-15
-                        same_coord = 1
-                    else
-                        same_coord = 2
-                    end
-                    # now generate intermediary points according to level_diff
-                    # because mesh is balanced, never generate more than 
-                    num_edges = 2^level_diff
-                    intermediary_points = [(point)]
-
-                    if !haskey(point_connection_dict, point)
-                        point_connection_dict[point] = Set{Tuple{Float64, Float64}}()
-                    end
-                    push!(point_connection_dict[point], left_point, right_point)
-                    edge1 = (point, left_point)
-                    edge2 = (point, right_point)
-                    other_edges = ((point, left_point))
-                    found_edge1 = false
-                    found_edge2 = false
-                    tol = 1e-13
-                    for edge in keys(edge_counts)
-                        if distance(edge[1], edge1[1]) < tol && distance(edge[2], edge1[2]) < tol
-                            edge_counts[edge] += 1
-                            found_edge1 = true
+                    point, right_point = coords[i], coords[mod1(i+1, 4)]                    
+                    # if !haskey(point_connection_dict, point)
+                    #     point_connection_dict[point] = Set{Tuple{Float64, Float64}}()
+                    # end
+                    # push!(point_connection_dict[point], middle_point, right_point)
+                    # push!(point_connection_dict[middle_point], point, right_point)
+                    # push!(point_connection_dict[right_point], point, middle_point)
+                    intermediary_points = [((point[1]+right_point[1])/2*i, (point[2]+right_point[2])/2*i) for i in 1:2^level_diff-1]
+                    all_edge_points = [point; intermediary_points; right_point]
+                    for i in 1:length(all_edge_points)-1
+                        edge = (all_edge_points[i], all_edge_points[i+1])
+                        reverse_edge = (all_edge_points[i+1], all_edge_points[i])
+                        found_edge = false
+                        for other_edge in keys(edge_counts)
+                            if distance(edge[1], other_edge[1]) < tol && distance(edge[2], other_edge[2]) < tol
+                                edge_counts[other_edge] += 1
+                                found_edge = true
+                                break
+                            elseif distance(reverse_edge[1], other_edge[1]) < tol && distance(reverse_edge[2], other_edge[2]) < tol
+                                edge_counts[other_edge] += 1
+                                found_edge = true
+                                break
+                            end
                         end
-                        if distance(edge[1], edge2[1]) < tol && distance(edge[2], edge2[2]) < tol
-                            edge_counts[edge] += 1
-                            found_edge2 = true
+                        if !found_edge
+                            edge_counts[edge] = 1
                         end
                     end
-                    # also check the "half-edge"
-                    if !found_edge1
-                        edge_counts[edge1] = 1
-                    end
-                    if !found_edge2
-                        edge_counts[edge2] = 1
-                    end
-                    # if !haskey(edge_counts, (point, left_point))
-                    #     edge_counts[(point, left_point)] = 1
-                    # else
-                    #     edge_counts[(point, left_point)] += 1
-                    # end
-                    # if !haskey(edge_counts, (point, right_point))
-                    #     edge_counts[(point, right_point)] = 1
-                    # else
-                    #     edge_counts[(point, right_point)] += 1
-                    # end
                 end
             end
         end
         good_edges = []
         for edge in keys(edge_counts)
             count = edge_counts[edge]
-            # if count == 1
-            # if count == 1 && PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1])
-            #     push!(good_edges, edge)
-            # end
-            push!(good_edges, edge)
+            if count == 1 && PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1], atol=1e-15)
+                push!(good_edges, edge)
+            end
         end
-        showEdgeList(good_edges)
+        # println(length(good_edges))
+        # showEdgeList(good_edges)
+        # good_edges now only contains the edges of our boundary, we just want to put the points in order now.
+        # we do this by making a dictionary mapping points to their edges.
         # for key in keys(point_connection_dict)
         #     if length(point_connection_dict[key]) > 2
         #         delete!(point_connection_dict, key)
         #     end
         # end
         # println(edge_counts)
-        println(length(edge_counts))
-        start_edge = nothing
-        for edge in keys(edge_counts)
-            start_edge = edge
-            break
-        end
-        cur_point = start_edge[1]
-        prev_point = start_edge[2]
-        edges = [start_edge]
-        while cur_point != prev_point
-            good_points = []
-            for point in point_connection_dict[cur_point]
-                if point != prev_point && (cur_point, point) in keys(edge_counts)
-                    push!(good_points, point)
+
+        # point_edge_connections = Dict{Tuple{Float64, Float64}, Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}}
+        # edge_
+        # for edge in good_edgesd
+
+        # end
+        start_edge = good_edges[1]
+        edge_connections = [start_edge[1], start_edge[2]]
+        k = 2
+        while k < length(good_edges)
+            for edge in good_edges
+                if distance(edge[1], edge_connections[end]) < tol && distance(edge[2], edge_connections[end-1]) >= tol
+                    push!(edge_connections, edge[2])
+                    break
+                elseif distance(edge[2], edge_connections[end]) < tol && distance(edge[1], edge_connections[end-1]) >= tol
+                    push!(edge_connections, edge[1])
+                    break
                 end
             end
-            if length(good_points) != 1
-                println(good_points)
-                println(prev_point)
-                # println(point_connection_dict[cur_point])
-                # println(keys(edge_counts))
-                # for key in keys(edge_counts)
-                #     dist = distance(key[1], (-0.26896879850186084, -0.5486616027997546))
-                #     if dist < 1e-2
-                #         println("-----")
-                #         println(dist)
-                #         println(key)
-                #         println(edge_counts[key])
-                #     end
-                # end
-                # for point in point_connection_dict[cur_point]
-                #     cur_edge = (cur_point, point)
-                #     for edge in keys(edge_counts)
-                #         if distance(cur_edge[1], edge[1]) < 1e-6
-                #             println(edge)
-                #         end
-                #     end
-                # end
-                error("BAD BAD")
-            end
-            prev_point = cur_point
-            cur_point = good_points[1]
-            push!(edges, (prev_point, cur_point))
+            k += 1
         end
-        push!(edge_list, edges)
+        push!(edge_list, edge_connections)
     end
     return edge_list
-
-
-
-    # quadtree_points = map(QuadToCoords, tree)
-    # quadtree_poly = PolygonAlgorithms.union_geometry(quadtree_points...)
-    # remove_points = [[] for i in 1:num_boundaries]
-    # for quadrant in tree
-    #     GEO, DOM = get_GEO_DOM(quadrant)
-    #     for boundary in 1:num_boundaries
-    #         if ((GEO == regular && boundary in DOM) || (GEO == cut)) && boundary == minimum(DOM)
-    #         # if ((GEO == regular && length(DOM)>0))
-    #             # coords = QuadToCoords(quadrant)
-    #             # if all(coords[i][1] < 0 && coords[i][2] < 0 && coords[i][1]^2 + coords[i][2]^2 < 1 for i in 1:4)
-    #             #     println(quadrant)
-    #             # end
-    #             push!(remove_points[boundary], QuadToCoords(quadrant))
-    #         end
-    #     end
-    # end
-    # internalBoundaryPoints = [PolygonAlgorithms.union_geometry(remove_points[i]...) for i in 1:num_boundaries if length(remove_points[i]) > 0]
-
-    # if length(internalBoundaryPoints) == 0
-    #     error("No internal boundaries found, try refining more!")
-    # end
-
-    # return internalBoundaryPoints
 end
 
 function createMeshByGeoFromQuadtree(forest)
@@ -795,20 +727,20 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
     
     forest = createQuadtree()
 
-    showGeoQuadtreeMesh(mesh, forest)
-    println(P4estTypes.lnodes(forest))
+    # showGeoQuadtreeMesh(mesh, forest)
+    # println(P4estTypes.lnodes(forest))
 
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
     
-    internalBoundaries = filterBoundaries(internalBoundaryPoints)
+    # internalBoundaries = filterBoundaries(internalBoundaryPoints)
         
-    culledInternalBoundaries = cullBoundaryPoints(internalBoundaries)
+    # culledInternalBoundaries = cullBoundaryPoints(internalBoundaries)
 
     # println(culledInternalBoundaries)
 
     gmsh.model.add("BoundaryRegions")
 
-    boundary_linetags, internal_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, culledInternalBoundaries, meshsize, max_triangle_size, parametrizations)
+    boundary_linetags, internal_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, internalBoundaryPoints, meshsize, max_triangle_size, parametrizations)
 
     gmsh.model.geo.synchronize()
     gmsh.model.mesh.removeDuplicateNodes()
