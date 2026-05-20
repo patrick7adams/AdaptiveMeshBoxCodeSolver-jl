@@ -644,48 +644,6 @@ function initializeMeshVariables(mesh, forcing_func)
     end
 end
 
-function filterBoundaries(internalBoundaryPoints)
-    internalBoundaries = []
-    for boundary in 1:num_boundaries
-        for j in 1:length(internalBoundaryPoints[boundary])
-            point = internalBoundaryPoints[boundary][j][1]
-            point_contains = PolygonAlgorithms.contains(bndry_mesh_points[boundary], point) 
-            if bndry_mesh_orientations[boundary] == 1
-                orientation = true
-            else
-                orientation = false
-            end
-            point_within = xor(point_contains, orientation)
-            if ~point_within
-                # then second boundary side is within
-                push!(internalBoundaries, internalBoundaryPoints[boundary][j])
-            end
-        end
-    end
-    
-    return internalBoundaries
-end
-
-function cullBoundaryPoints(internalBoundaries)
-    culledInternalBoundaries = []
-
-    for (j, boundary) in enumerate(internalBoundaries)
-        push!(culledInternalBoundaries, [])
-        for i in 1:length(boundary)
-            if distance(boundary[i], boundary[mod1(i+1, length(boundary))]) >= 1e-8
-                # if i != length(boundary) || j != 2
-                #     push!(culledInternalBoundaries[j], boundary[i])
-                # end
-                # really weird issues happen when the max refinement is 4 here. gonna focus on this later but this is pretty problematic
-                modifiedPoint = (boundary[i][1] + 1e-7*(rand()-0.5), boundary[i][2] + 1e-7*(rand()-0.5))
-                push!(culledInternalBoundaries[j], modifiedPoint)
-            end
-        end
-    end
-
-    return culledInternalBoundaries
-end
-
 function createCombinedMesh(forest, surface_tag)
     element_type = 3
     numQuads = 0
