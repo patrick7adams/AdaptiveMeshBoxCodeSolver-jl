@@ -322,30 +322,168 @@ function replaceQuadrant(forest, treeid, outgoing, incoming)
 end
 
 function getInternalBoundaryPoints(tree)
-    # first, construct polygon to represent all quadrants in quadtree
-    quadtree_points = map(QuadToCoords, tree)
-    quadtree_poly = PolygonAlgorithms.union_geometry(quadtree_points...)
-    remove_points = [[] for i in 1:num_boundaries]
-    for quadrant in tree
-        GEO, DOM = get_GEO_DOM(quadrant)
-        for boundary in 1:num_boundaries
-            if ((GEO == regular && boundary in DOM) || (GEO == cut)) && boundary == minimum(DOM)
-            # if ((GEO == regular && length(DOM)>0))
-                # coords = QuadToCoords(quadrant)
-                # if all(coords[i][1] < 0 && coords[i][2] < 0 && coords[i][1]^2 + coords[i][2]^2 < 1 for i in 1:4)
-                #     println(quadrant)
-                # end
-                push!(remove_points[boundary], QuadToCoords(quadrant))
-            end
+    # new algorithm: we want every point that is on the "outside" of the quadtree; essentially every cut
+
+    # first find lowest quad level
+    max_level = 0
+    for quad in tree
+        lvl = P4estTypes.level(quad)
+        if lvl > max_level
+            max_level = lvl
         end
     end
-    internalBoundaryPoints = [PolygonAlgorithms.union_geometry(remove_points[i]...) for i in 1:num_boundaries if length(remove_points[i]) > 0]
 
-    if length(internalBoundaryPoints) == 0
-        error("No internal boundaries found, try refining more!")
+    edge_list = []
+    for boundary in 1:num_boundaries
+        point_connection_dict = Dict{Tuple{Float64, Float64}, Set{Tuple{Float64, Float64}}}()
+        edge_counts = Dict{Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}, Int32}()
+        for quadrant in tree
+            GEO, DOM = get_GEO_DOM(quadrant)
+            if (GEO == regular && boundary in DOM) || (GEO == cut && boundary in DOM) && boundary == minimum(DOM)
+                level_diff = max_level - P4estTypes.level(quadrant)
+                coords = QuadToCoords(quadrant)
+                for i in 1:4
+                    # add edge for each point to connection dict
+                    point, right_point = coords[i], coords[mod1(i+1, 4)]
+                    if abs(point[1] - right_point[1]) < 1e-15
+                        same_coord = 1
+                    else
+                        same_coord = 2
+                    end
+                    # now generate intermediary points according to level_diff
+                    # because mesh is balanced, never generate more than 
+                    num_edges = 2^level_diff
+                    intermediary_points = [(point)]
+
+                    if !haskey(point_connection_dict, point)
+                        point_connection_dict[point] = Set{Tuple{Float64, Float64}}()
+                    end
+                    push!(point_connection_dict[point], left_point, right_point)
+                    edge1 = (point, left_point)
+                    edge2 = (point, right_point)
+                    other_edges = ((point, left_point))
+                    found_edge1 = false
+                    found_edge2 = false
+                    tol = 1e-13
+                    for edge in keys(edge_counts)
+                        if distance(edge[1], edge1[1]) < tol && distance(edge[2], edge1[2]) < tol
+                            edge_counts[edge] += 1
+                            found_edge1 = true
+                        end
+                        if distance(edge[1], edge2[1]) < tol && distance(edge[2], edge2[2]) < tol
+                            edge_counts[edge] += 1
+                            found_edge2 = true
+                        end
+                    end
+                    # also check the "half-edge"
+                    if !found_edge1
+                        edge_counts[edge1] = 1
+                    end
+                    if !found_edge2
+                        edge_counts[edge2] = 1
+                    end
+                    # if !haskey(edge_counts, (point, left_point))
+                    #     edge_counts[(point, left_point)] = 1
+                    # else
+                    #     edge_counts[(point, left_point)] += 1
+                    # end
+                    # if !haskey(edge_counts, (point, right_point))
+                    #     edge_counts[(point, right_point)] = 1
+                    # else
+                    #     edge_counts[(point, right_point)] += 1
+                    # end
+                end
+            end
+        end
+        good_edges = []
+        for edge in keys(edge_counts)
+            count = edge_counts[edge]
+            # if count == 1
+            # if count == 1 && PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1])
+            #     push!(good_edges, edge)
+            # end
+            push!(good_edges, edge)
+        end
+        showEdgeList(good_edges)
+        # for key in keys(point_connection_dict)
+        #     if length(point_connection_dict[key]) > 2
+        #         delete!(point_connection_dict, key)
+        #     end
+        # end
+        # println(edge_counts)
+        println(length(edge_counts))
+        start_edge = nothing
+        for edge in keys(edge_counts)
+            start_edge = edge
+            break
+        end
+        cur_point = start_edge[1]
+        prev_point = start_edge[2]
+        edges = [start_edge]
+        while cur_point != prev_point
+            good_points = []
+            for point in point_connection_dict[cur_point]
+                if point != prev_point && (cur_point, point) in keys(edge_counts)
+                    push!(good_points, point)
+                end
+            end
+            if length(good_points) != 1
+                println(good_points)
+                println(prev_point)
+                # println(point_connection_dict[cur_point])
+                # println(keys(edge_counts))
+                # for key in keys(edge_counts)
+                #     dist = distance(key[1], (-0.26896879850186084, -0.5486616027997546))
+                #     if dist < 1e-2
+                #         println("-----")
+                #         println(dist)
+                #         println(key)
+                #         println(edge_counts[key])
+                #     end
+                # end
+                # for point in point_connection_dict[cur_point]
+                #     cur_edge = (cur_point, point)
+                #     for edge in keys(edge_counts)
+                #         if distance(cur_edge[1], edge[1]) < 1e-6
+                #             println(edge)
+                #         end
+                #     end
+                # end
+                error("BAD BAD")
+            end
+            prev_point = cur_point
+            cur_point = good_points[1]
+            push!(edges, (prev_point, cur_point))
+        end
+        push!(edge_list, edges)
     end
+    return edge_list
 
-    return internalBoundaryPoints
+
+
+    # quadtree_points = map(QuadToCoords, tree)
+    # quadtree_poly = PolygonAlgorithms.union_geometry(quadtree_points...)
+    # remove_points = [[] for i in 1:num_boundaries]
+    # for quadrant in tree
+    #     GEO, DOM = get_GEO_DOM(quadrant)
+    #     for boundary in 1:num_boundaries
+    #         if ((GEO == regular && boundary in DOM) || (GEO == cut)) && boundary == minimum(DOM)
+    #         # if ((GEO == regular && length(DOM)>0))
+    #             # coords = QuadToCoords(quadrant)
+    #             # if all(coords[i][1] < 0 && coords[i][2] < 0 && coords[i][1]^2 + coords[i][2]^2 < 1 for i in 1:4)
+    #             #     println(quadrant)
+    #             # end
+    #             push!(remove_points[boundary], QuadToCoords(quadrant))
+    #         end
+    #     end
+    # end
+    # internalBoundaryPoints = [PolygonAlgorithms.union_geometry(remove_points[i]...) for i in 1:num_boundaries if length(remove_points[i]) > 0]
+
+    # if length(internalBoundaryPoints) == 0
+    #     error("No internal boundaries found, try refining more!")
+    # end
+
+    # return internalBoundaryPoints
 end
 
 function createMeshByGeoFromQuadtree(forest)
@@ -409,9 +547,8 @@ function showGeoQuadtreeMesh(msh, forest)
     for i in 1:length(geometries)
         println(i)
         viz!(geometries[i]; color=colors[i], showsegments = true, segmentsize = 1)
-        # viz!(geometries[i]; color=i, showsegments = true, segmentsize = 1)
     end
-
+    viz!(Γ_msh; color = :red, segmentsize = 1)
     display(fig)
 end
 
@@ -514,7 +651,6 @@ function getMeshBounds(msh)
     for E in Inti.element_types(bndry_mesh)
         compute!(Inti.elements(bndry_mesh, E), lb, ub)
     end
-    
     lb, ub
 end
 
@@ -559,12 +695,12 @@ end
 function initializeMeshVariables(mesh, forcing_func)
     global bounds = getMeshBounds(mesh)
     global forcing[] = forcing_func
-
     mesh_len = [bounds[2][1] - bounds[1][1], bounds[2][2] - bounds[1][2]]
     for i in 1:2
         bounds[1][i] -= mesh_len[i] * 0.05
         bounds[2][i] += mesh_len[i] * 0.05
     end
+    
     global mesh_len = [bounds[2][1] - bounds[1][1], bounds[2][2] - bounds[1][2]]
     global original_mesh = mesh
     global bndry_mesh = getBoundaryMesh(mesh)
@@ -658,6 +794,9 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
     initializeMeshVariables(mesh, forcing_func)
     
     forest = createQuadtree()
+
+    showGeoQuadtreeMesh(mesh, forest)
+    println(P4estTypes.lnodes(forest))
 
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
     
