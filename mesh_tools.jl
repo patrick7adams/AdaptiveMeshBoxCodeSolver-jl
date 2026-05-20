@@ -46,6 +46,25 @@ function showMeshWithQuadrature(msh, quad)
     display(fig)
 end
 
+function showEdgeList(edges)
+    line1 = Meshes.Segment(Meshes.Point(edges[1][1][1], edges[1][1][2]), Meshes.Point(edges[1][2][1], edges[1][2][2]))
+    println(line1)
+    fig = viz(
+        line1;
+        color = :red,
+        segmentsize = 1,
+        showsegments = true,
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (500, 400)),
+    )
+    for edge in edges[2:end]
+        line = Meshes.Segment(Meshes.Point(edge[1][1], edge[1][2]), Meshes.Point(edge[2][1], edge[2][2]))
+        # println(line)
+        viz!(line; color = :red, segmentsize = 1)
+    end
+    display(fig)
+end
+
 function createCurveLoop(points, max_triangle_size)
     pointTags = []
     for i in 1:length(points)
@@ -89,10 +108,12 @@ function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
     gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
     loops = []
     if outside_curve == []
+        # circle = Inti.gmsh_curve((x) -> Inti.Point2D(cos(2*pi*x), sin(2*pi*x)), 0.0, 1.0; meshsize = meshsize)
         points = []
+        println(Int32(ceil(100 / max_triangle_size)))
         for t in range(0, stop = 2pi, length=Int32(ceil(100 / max_triangle_size)))[1:end-1]
             point = (cos(t), sin(t))
-            push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
+            push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize/2))
         end
         push!(points, points[1])
         polyloop = gmsh.model.geo.addPolyline(points)

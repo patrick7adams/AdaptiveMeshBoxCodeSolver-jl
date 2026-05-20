@@ -820,7 +820,7 @@ function area_from_boundary_mesh(boundary_mesh)
 end
 
 function test_simple_quadtree_vs_triangle_mesh_area()
-    meshsize = 0.2
+    meshsize = 0.275
     mesh = createMesh(meshsize, meshsize*2)
 
     forcing_function = (x) -> 1
