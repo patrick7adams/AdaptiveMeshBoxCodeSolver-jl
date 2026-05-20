@@ -113,7 +113,7 @@ function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
         println(Int32(ceil(100 / max_triangle_size)))
         for t in range(0, stop = 2pi, length=Int32(ceil(100 / max_triangle_size)))[1:end-1]
             point = (cos(t), sin(t))
-            push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize/2))
+            push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
         end
         push!(points, points[1])
         polyloop = gmsh.model.geo.addPolyline(points)
