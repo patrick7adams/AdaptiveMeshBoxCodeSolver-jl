@@ -227,9 +227,6 @@ function refinementStage(forest, treeid, quadrant)
     quad_level = P4estTypes.level(quadrant)
     quad_coords = QuadToCoords(quadrant)
     formatted_coords = [quad_coords[1][1], quad_coords[3][1], quad_coords[1][2], quad_coords[3][2]]
-    # if P4estTypes.coordinates(quadrant) == (167772160, 528482304) && P4estTypes.level(quadrant) == 7
-    #     println("HI")
-    # end
     if GEO == regular
         if ~ResolvedSourceCheby(quadrant, forcing[], tol)
             return true
@@ -295,19 +292,6 @@ function replaceQuadrant(forest, treeid, outgoing, incoming)
         null_list = NTuple{max_num_boundaries, Int32}([-1 for i in 1:max_num_boundaries])
         parent_DOM_NTuple = NTuple{max_num_boundaries, Int32}(DOM_list)
         for quadrant in incoming
-            # geo_dom_struct = P4estTypes.unsafe_loaduserdata(quadrant, geo_dom_data)
-            # GEO = geo_dom_struct.GEO
-            # DOM_NTuple = geo_dom_struct.DOM
-            # if P4estTypes.coordinates(quadrant) == (973078528, 536870912)
-            #     println("-------------------")
-            #     println(P4estTypes.level(quadrant))
-            #     println(GEO)
-            #     println(DOM_NTuple)
-            #     println(parent_GEO)
-            #     println(parent_DOM_NTuple)
-            #     println(P4estTypes.coordinates(outgoing[1]))
-            #     println(P4estTypes.level(outgoing[1]))
-            # end
             geo_dom_val_tmp = geo_dom_data(null, null_list, parent_GEO, parent_DOM_NTuple)
             P4estTypes.unsafe_storeuserdata!(quadrant, geo_dom_val_tmp)
             GEO, DOM = classifyQuad(quadrant, bndry_mesh_points, bndry_mesh_orientations, 0.1)
@@ -316,7 +300,6 @@ function replaceQuadrant(forest, treeid, outgoing, incoming)
             DOM_NTuple = NTuple{max_num_boundaries, Int32}(DOM_list)
             geo_dom_val = geo_dom_data(GEO, DOM_NTuple, parent_GEO, parent_DOM_NTuple)
             P4estTypes.unsafe_storeuserdata!(quadrant, geo_dom_val)
-            # println(geo_dom_val)
         end
     end
 end
@@ -382,22 +365,6 @@ function getInternalBoundaryPoints(tree)
                 push!(good_edges, edge)
             end
         end
-        # println(length(good_edges))
-        # showEdgeList(good_edges)
-        # good_edges now only contains the edges of our boundary, we just want to put the points in order now.
-        # we do this by making a dictionary mapping points to their edges.
-        # for key in keys(point_connection_dict)
-        #     if length(point_connection_dict[key]) > 2
-        #         delete!(point_connection_dict, key)
-        #     end
-        # end
-        # println(edge_counts)
-
-        # point_edge_connections = Dict{Tuple{Float64, Float64}, Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}}
-        # edge_
-        # for edge in good_edgesd
-
-        # end
         start_edge = good_edges[1]
         edge_connections = [start_edge[1], start_edge[2]]
         k = 2
@@ -427,7 +394,6 @@ function createMeshByGeoFromQuadtree(forest)
     # sixth is null
     box_lists = [[] for i in 1:(5 + num_boundaries)]
     for quad in forest[1]
-        # println(quad)
         coords = QuadToCoords(quad)
         GEO, DOM = get_GEO_DOM(quad)
         box = Meshes.Box(coords[1], coords[3])
@@ -468,7 +434,6 @@ function showGeoQuadtreeMesh(msh, forest)
         axis = (aspect = DataAspect(),),
         figure = (; size = (500, 400)),
     )
-    # print(geometries)
     # viz!(Γ_msh; color = :red, segmentsize = 1)
     color_vals = [0.8, 0.5, 0, 0.2, 1]
     for i = 1:num_boundaries
@@ -477,7 +442,6 @@ function showGeoQuadtreeMesh(msh, forest)
     colorfier = Colorfy.Colorfier(color_vals)
     colors = Colorfy.colors(colorfier)
     for i in 1:length(geometries)
-        println(i)
         viz!(geometries[i]; color=colors[i], showsegments = true, segmentsize = 1)
     end
     viz!(Γ_msh; color = :red, segmentsize = 1)
@@ -488,7 +452,6 @@ function createMeshFromQuadtree(forest)
     box_list = []
     for quad in forest[1]
         coords = QuadToCoords(quad)
-        # println(coords)
         GEO, DOM = get_GEO_DOM(quad)
         if GEO == regular && length(DOM) == 0
         # if (GEO == regular && 2 in DOM) || (GEO == cut && 2 in DOM)
@@ -543,7 +506,6 @@ function getBoundaryPoints(bndry_mesh)
         end
         return compute_verts, compute_orientations
     end
-    # start = time_ns()
     for (i, E) in enumerate(Inti.element_types(bndry_mesh))
         connectivity = Inti.connectivity(bndry_mesh, E)
         orientation = Inti.orientation(bndry_mesh, E)
@@ -551,8 +513,6 @@ function getBoundaryPoints(bndry_mesh)
         append!(verts, tmp_verts)
         append!(orientations, tmp_orientations)
     end
-    # end_time = time_ns() - start
-    # println(end_time * 1e-9)
     verts[1:end-1], orientations
 end
 
@@ -597,7 +557,7 @@ function createMeshWithInternalBoundary(boundary_points, internal_points, meshsi
         points = []
         for t in range(0, stop = 1, length=Int32(ceil(100 / meshsize)))[1:end-1]
             point = (parametrizations[i](t)[1], parametrizations[i](t)[2])
-            push!(points, gmsh.model.geo.addPoint(point..., 0.0))
+            push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
         end
         push!(points, points[1])
         polyloop = gmsh.model.geo.addPolyline(points)
@@ -677,24 +637,15 @@ function extractQuadtreeMesh(mesh)
     return views
 end
 
-function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64, parametrizations::Vector{Function}; return_quadtree_mesh = false)
+function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64, parametrizations::Vector{Function})
     # Creates the meshes describing the boundary region and the quadtree
     gmsh.option.setNumber("General.Verbosity", 3)
 
     initializeMeshVariables(mesh, forcing_func)
-    
+
     forest = createQuadtree()
 
-    # showGeoQuadtreeMesh(mesh, forest)
-    # println(P4estTypes.lnodes(forest))
-
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
-    
-    # internalBoundaries = filterBoundaries(internalBoundaryPoints)
-        
-    # culledInternalBoundaries = cullBoundaryPoints(internalBoundaries)
-
-    # println(culledInternalBoundaries)
 
     gmsh.model.add("BoundaryRegions")
 
@@ -711,10 +662,6 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
         gmsh.model.addPhysicalGroup(1, [boundary_linetags[i]], -1, boundary_str)
     end
 
-    if return_quadtree_mesh
-        gmsh.model.add("quadtreeRegions")
-    end
-
     surface_tag = gmsh.model.addDiscreteEntity(2, -1, internal_linetags)
 
     createCombinedMesh(forest, surface_tag)
@@ -724,12 +671,6 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
     gmsh.model.addPhysicalGroup(2, [surface_tag], -1, "Quadtree")
 
     gmsh.model.mesh.removeDuplicateNodes()
-    # gmsh.option.setNumber("Mesh.MeshSizeMin", meshsize)
-    # gmsh.option.setNumber("Mesh.MeshSizeFromParametricPoints", 1)
-    # gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
-    # gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
-    # gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
-    # gmsh.model.mesh.generate(2)
     gmsh.model.mesh.setOrder(order)
     gmsh.write("combined.msh")
     combined_msh = Inti.import_mesh(; dim = 2)

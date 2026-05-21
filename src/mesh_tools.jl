@@ -110,9 +110,8 @@ function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
     if outside_curve == []
         # circle = Inti.gmsh_curve((x) -> Inti.Point2D(cos(2*pi*x), sin(2*pi*x)), 0.0, 1.0; meshsize = meshsize)
         points = []
-        println(Int32(ceil(100 / max_triangle_size)))
-        for t in range(0, stop = 2pi, length=Int32(ceil(100 / max_triangle_size)))[1:end-1]
-            point = (cos(t), sin(t))
+        for t in range(0, stop = 1, length=Int32(ceil(100 / meshsize)))[1:end-1]
+            point = (cos(t*2*pi), sin(t*2*pi))
             push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
         end
         push!(points, points[1])
