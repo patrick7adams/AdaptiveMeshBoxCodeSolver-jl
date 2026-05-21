@@ -1,5 +1,4 @@
-include("mesh_tools.jl")
-include("main.jl")
+include("../src/main.jl")
 
 using Test
 
@@ -31,4 +30,4 @@ function test_volume_potential_far_x()
     println(estimated_result)
 end
 
-test_volume_potential_area()
+test_volume_potential_far_x()
