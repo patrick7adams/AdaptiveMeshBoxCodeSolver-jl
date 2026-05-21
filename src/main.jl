@@ -639,23 +639,23 @@ end
 
 function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64, parametrizations::Vector{Function})
     # Creates the meshes describing the boundary region and the quadtree
+    
     gmsh.option.setNumber("General.Verbosity", 3)
 
     initializeMeshVariables(mesh, forcing_func)
-
+    
     forest = createQuadtree()
-
+   
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
-
+    
     gmsh.model.add("BoundaryRegions")
 
     boundary_linetags, internal_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, internalBoundaryPoints, meshsize, max_triangle_size, parametrizations)
 
     gmsh.model.geo.synchronize()
     gmsh.model.mesh.removeDuplicateNodes()
-    # gmsh.option.setNumber("Mesh.MeshSizeMax", max_triangle_size)
     gmsh.model.mesh.generate(2)
-
+    
     for i in 1:num_boundaries
         boundary_str = string("Boundary ", i)
         gmsh.model.addPhysicalGroup(2, [surface_tags[i]], -1, boundary_str)
@@ -666,14 +666,22 @@ function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::F
 
     createCombinedMesh(forest, surface_tag)
 
+    
+    
     gmsh.model.geo.synchronize()
+    
 
     gmsh.model.addPhysicalGroup(2, [surface_tag], -1, "Quadtree")
-
+    
     gmsh.model.mesh.removeDuplicateNodes()
-    gmsh.model.mesh.setOrder(order)
+    
     gmsh.write("combined.msh")
+    
+    Inti.clear_entities!()
     combined_msh = Inti.import_mesh(; dim = 2)
+
+    gmsh.clear()
+    
     gmsh.finalize()
 
     return combined_msh
