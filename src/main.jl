@@ -587,8 +587,8 @@ function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Fu
 
     initializeMeshVariables(parametrizations, forcing_func)
     println("wassup")
-    forest = createQuadtree(5)
-    # println(forest[1])
+    forest = createQuadtree(-1)
+    println(forest[1])
     # println("hey")
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
     
