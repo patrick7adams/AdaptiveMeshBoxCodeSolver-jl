@@ -325,9 +325,7 @@ function test_simple_quadtree_greens_third_identity_sin_term()
 end
 
 function test_simple_quadtree_greens_third_identity_complex_forcing()
-    meshsize = 0.025
-    mesh = createMesh(meshsize, meshsize)
-    # showMesh(mesh)
+    meshsize = 0.25
 
     x_test = (1, 1) # point just outside of the region
     u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
@@ -350,8 +348,8 @@ function test_simple_quadtree_greens_third_identity_complex_forcing()
     expected_u_val = u(x_test)
 
     gmsh.initialize()
-    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
-    quadtree_mesh = createQuadtreeMesh(mesh, u, meshsize, meshsize, parametrizations)
+    parametrizations::Vector{Function} = [(x) -> (cos(x*2*pi), sin(x*2*pi))]
+    quadtree_mesh = createQuadtreeMesh(parametrizations, u, meshsize, meshsize)
 
     showMesh(quadtree_mesh)
 

@@ -463,50 +463,13 @@ function createMeshFromQuadtree(forest)
     return geometry
 end
 
-function getBoundaryPoints(bndry_mesh)
-    verts = Vector{Vector{Tuple{Float64, Float64}}}()
-    orientations = []
-    function compute(iter, connectivity, orientation)
-        compute_verts = Vector{Vector{Tuple{Float64, Float64}}}()
-        push!(compute_verts, Vector{Tuple{Float64, Float64}}())
-        compute_orientations = []
-        j = 1
-        original_connectivity = -1
-        for (i, el) in enumerate(iter)
-            v1 = Inti.vertices(el)[1]
-            # boundary idx indices, change if using non-triangular mesh
-            c1 = connectivity[1, i]
-            c2 = connectivity[order+1, i]
-            if original_connectivity == -1
-                # triggers on first index of new boundary, so add orientation
-                or = orientation[i]
-                push!(compute_orientations, or)
-                original_connectivity = c1
-            end            
-            # now, to fix the issue with point containment around y=0, we must
-            # lock points close to y=0 directly to y=0.
-            if abs(v1[2]) < 1e-15
-                push!(compute_verts[j], (v1[1], 0.0))
-            else
-                push!(compute_verts[j], (v1[1], v1[2]))
-            end
-            # now decide if placing in verts or moving to next
-            if (c2 == original_connectivity)
-                j += 1
-                original_connectivity = -1
-                push!(compute_verts, [])
-            end
-        end
-        return compute_verts, compute_orientations
+function getBoundaryPoints(parametrization::Function, num_points::Int64)::Vector{Tuple{Float64, Float64}}
+    boundary = Vector{Tuple{Float64, Float64}}()
+    for t in range(0, stop=1, length=num_points)
+        point = parametrization(t)
+        push!(boundary, point)
     end
-    for (i, E) in enumerate(Inti.element_types(bndry_mesh))
-        connectivity = Inti.connectivity(bndry_mesh, E)
-        orientation = Inti.orientation(bndry_mesh, E)
-        tmp_verts, tmp_orientations = compute(Inti.elements(bndry_mesh, E), connectivity, orientation)
-        append!(verts, tmp_verts)
-        append!(orientations, tmp_orientations)
-    end
-    verts[1:end-1], orientations
+    return boundary
 end
 
 function getMeshBounds(boundary_parametrization::Function)::Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}
@@ -523,7 +486,7 @@ function getMeshBounds(boundary_parametrization::Function)::Tuple{Tuple{Float64,
             end
         end
     end
-    return (lb, ub)
+    return ((lb[1], lb[2]), (ub[1], ub[2]))
 end
 
 function createMeshWithInternalBoundary(boundary_points, internal_points, meshsize, max_triangle_size, parametrizations)
@@ -564,22 +527,34 @@ function createQuadtree(maxlevel = -1)
     return forest
 end
 
-function initializeMeshVariables(boundary_parametrization::Function, forcing_func::Function)
-    global bounds = getMeshBounds(boundary_parametrization)
+function initializeMeshVariables(parametrizations::Vector{Function}, forcing_func::Function)
+    tmp_bounds = getMeshBounds(parametrizations[1])
     global forcing[] = forcing_func
-    mesh_len = [bounds[2][1] - bounds[1][1], bounds[2][2] - bounds[1][2]]
-    for i in 1:2
-        # increase quadtree bounds by a little so that the first quad contains the whole mesh
-        bounds[1][i] -= mesh_len[i] * 0.05
-        bounds[2][i] += mesh_len[i] * 0.05
-    end
-    
+    tmp_mesh_len = [tmp_bounds[2][1] - tmp_bounds[1][1], tmp_bounds[2][2] - tmp_bounds[1][2]]
+    global bounds = Tuple(Tuple(tmp_bounds[i][j] + (-1)^i * tmp_mesh_len[j] * 0.05 for j in 1:2) for i in 1:2)
     global mesh_len = [bounds[2][1] - bounds[1][1], bounds[2][2] - bounds[1][2]]
-    global bndry_mesh_points, bndry_mesh_orientations = getBoundaryPoints(bndry_mesh)
-    global num_boundaries = length(bndry_mesh_points)
+    # println(bounds)
+    # println(mesh_len)
+    global bndry_mesh_points = Vector{Vector{Tuple{Float64, Float64}}}()
+    global bndry_mesh_orientations = Vector{Int32}()
+    global num_boundaries = length(parametrizations)
+
+    for i in 1:num_boundaries
+        boundary_points = getBoundaryPoints(parametrizations[i], 100)
+        # println(boundary_points)
+        push!(bndry_mesh_points, boundary_points)
+        if i == 1
+            push!(bndry_mesh_orientations, 1)
+        else
+            push!(bndry_mesh_orientations, -1)
+        end
+    end    
+    # println(bndry_mesh_points)
+    # println(bndry_mesh_orientations)
+    # println(num_boundaries)
 
     if num_boundaries > max_num_boundaries
-        error("Too many boundaries! Should be < 256")
+        error("Too many boundaries! Should be < ", max_num_boundaries)
     end
 end
 
@@ -604,37 +579,27 @@ function createCombinedMesh(forest, surface_tag)
     gmsh.model.mesh.addElementsByType(surface_tag, element_type, element_tags, node_tags)
 end
 
-function extractQuadtreeMesh(mesh)
-    views = []
-    for entity in Inti.entities(mesh)
-        if Inti.geometric_dimension(entity) == 2 && length(Inti.global_get_entity(entity).labels) == 0
-            # then this entity is the quadtree entity.
-            # oh my god view is the greatest thing ever
-            push!(views, view(mesh, entity))
-        end
-    end
-    return views
-end
-
 function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64)
     # Creates the meshes describing the boundary region and the quadtree
+    # important note: the first function in parametrizations is assumed to be the boundary, the others are assumed to be holes
     
     gmsh.option.setNumber("General.Verbosity", 3)
 
-    initializeMeshVariables(parametrizations[1], forcing_func)
-    
-    forest = createQuadtree()
-   
+    initializeMeshVariables(parametrizations, forcing_func)
+    println("wassup")
+    forest = createQuadtree(5)
+    # println(forest[1])
+    # println("hey")
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
     
     gmsh.model.add("BoundaryRegions")
 
     boundary_linetags, internal_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, internalBoundaryPoints, meshsize, max_triangle_size, parametrizations)
-
+    println("hi")
     gmsh.model.geo.synchronize()
     gmsh.model.mesh.removeDuplicateNodes()
     gmsh.model.mesh.generate(2)
-    
+    println("no")
     for i in 1:num_boundaries
         boundary_str = string("Boundary ", i)
         gmsh.model.addPhysicalGroup(2, [surface_tags[i]], -1, boundary_str)
@@ -644,11 +609,8 @@ function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Fu
     surface_tag = gmsh.model.addDiscreteEntity(2, -1, internal_linetags)
 
     createCombinedMesh(forest, surface_tag)
-
-    
     
     gmsh.model.geo.synchronize()
-    
 
     gmsh.model.addPhysicalGroup(2, [surface_tag], -1, "Quadtree")
     

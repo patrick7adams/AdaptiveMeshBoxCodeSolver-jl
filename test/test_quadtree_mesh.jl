@@ -4,41 +4,23 @@ using Test
 
 function test_simple_quadtree_mesh_area()
     meshsize = 0.1
-    mesh = createMesh(meshsize, meshsize)
 
     forcing_function = (x) -> 1
 
     gmsh.initialize()
-    parametrizations::Vector{Function} = [(x) -> [cos(x*2*pi), sin(x*2*pi)]]
-    quadtree_mesh = createQuadtreeMesh(mesh, forcing_function, meshsize, meshsize, parametrizations)
+    parametrizations::Vector{Function} = [(x) -> (cos(x*2*pi), sin(x*2*pi))]
+    quadtree_mesh = createQuadtreeMesh(parametrizations, forcing_function, meshsize, meshsize)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
-    boundary = get_boundary(quadtree_mesh)
-
-    # for element in Inti.elements(Inti.view(quadtree_mesh, dom))
-    #     # println(element)
-    #     println(element)
-    # end
-
     dom_mesh = Inti.view(quadtree_mesh, dom)
-    boundary_mesh = Inti.view(quadtree_mesh, boundary)
-    
     dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
-    boundary_quad = Inti.Quadrature(boundary_mesh; qorder = 6)
 
-    # showMeshWithQuadrature(quadtree_mesh, dom_quad)
-    showMesh(quadtree_mesh, showBoundary = false)
+    showMesh(quadtree_mesh)
     
     test_function = (q) -> forcing_function((q.coords[1], q.coords[2]))
 
     result = Inti.integrate(test_function, dom_quad)
-    println(abs(result - pi))
-    # order 1 - 0.020147640693671143
-    # order 2 - 9.880807441575712e-6
-    # order 3 - 1.2988655120338422e-6
-    # order 4 - 1.0035255693097156e-7
-    # order 5 - 1.9941442896964645e-7
-    # order 6 - 2.0248774212916487e-7
+    
     @test result ≈ pi atol=1e-15
 end
 
