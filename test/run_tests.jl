@@ -98,5 +98,6 @@ end
     # test_individual_triangles() # these work
     # test_individual_quads() # weird rn but they work
     # test_greens_identity() # these work to different tols (max 1e-13)
-    test_quadtree_vs_triangle() # these work to different tols (max 1e-13)
+    # test_quadtree_vs_triangle() # these work to different tols (max 1e-13)
+    test_simple_quadtree_greens_third_identity_complex_forcing()
 end;

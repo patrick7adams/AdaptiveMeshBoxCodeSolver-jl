@@ -29,5 +29,3 @@ function test_volume_potential_far_x()
     estimated_result = log(x[1]^2+x[2]^2)/(2pi) * Inti.integrate((q) -> u(q.coords), dom_quad)
     println(estimated_result)
 end
-
-test_volume_potential_far_x()

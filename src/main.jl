@@ -463,13 +463,6 @@ function createMeshFromQuadtree(forest)
     return geometry
 end
 
-function getBoundaryMesh(msh)
-    # returns the boundary of the mesh
-    domain = Inti.Domain(e -> Inti.geometric_dimension(e)==2, msh)
-    bndry_mesh = view(msh, Inti.boundary(domain))
-    bndry_mesh
-end
-
 function getBoundaryPoints(bndry_mesh)
     verts = Vector{Vector{Tuple{Float64, Float64}}}()
     orientations = []
@@ -516,34 +509,21 @@ function getBoundaryPoints(bndry_mesh)
     verts[1:end-1], orientations
 end
 
-function getMeshBounds(msh)
-    # gets the bounds of a gmsh mesh (assumed to be 2d)
-    # and returns the lower/upper bound for each dimension
-
-    # first get boundary
-    bndry_mesh = getBoundaryMesh(msh)
-    function compute!(iter, lb, ub)
-        for el in iter
-            # el is of type LagrangeElement (an approximating polynomial, representing a line)
-            verts = Inti.vertices(el)
-            for i in 1:2
-                for dim in 1:2
-                    if verts[i][dim] < lb[dim]
-                        lb[dim] = verts[i][dim]
-                    end 
-                    if verts[i][dim] > ub[dim]
-                        ub[dim] = verts[i][dim]
-                    end
-                end
+function getMeshBounds(boundary_parametrization::Function)::Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}
+    lb = [Inf, Inf]
+    ub = [-Inf, -Inf]
+    # using 1000 sample points, this doesn't have to be perfect:
+    for i in range(0, stop = 1, length = 1000)
+        val = boundary_parametrization(i)
+        for j in 1:2
+            if val[j] < lb[j]
+                lb[j] = val[j]
+            elseif val[j] > ub[j]
+                ub[j] = val[j]
             end
         end
     end
-    lb = [Inf, Inf]
-    ub = [-Inf, -Inf]
-    for E in Inti.element_types(bndry_mesh)
-        compute!(Inti.elements(bndry_mesh, E), lb, ub)
-    end
-    lb, ub
+    return (lb, ub)
 end
 
 function createMeshWithInternalBoundary(boundary_points, internal_points, meshsize, max_triangle_size, parametrizations)
@@ -584,18 +564,17 @@ function createQuadtree(maxlevel = -1)
     return forest
 end
 
-function initializeMeshVariables(mesh, forcing_func)
-    global bounds = getMeshBounds(mesh)
+function initializeMeshVariables(boundary_parametrization::Function, forcing_func::Function)
+    global bounds = getMeshBounds(boundary_parametrization)
     global forcing[] = forcing_func
     mesh_len = [bounds[2][1] - bounds[1][1], bounds[2][2] - bounds[1][2]]
     for i in 1:2
+        # increase quadtree bounds by a little so that the first quad contains the whole mesh
         bounds[1][i] -= mesh_len[i] * 0.05
         bounds[2][i] += mesh_len[i] * 0.05
     end
     
     global mesh_len = [bounds[2][1] - bounds[1][1], bounds[2][2] - bounds[1][2]]
-    global original_mesh = mesh
-    global bndry_mesh = getBoundaryMesh(mesh)
     global bndry_mesh_points, bndry_mesh_orientations = getBoundaryPoints(bndry_mesh)
     global num_boundaries = length(bndry_mesh_points)
 
@@ -637,12 +616,12 @@ function extractQuadtreeMesh(mesh)
     return views
 end
 
-function createQuadtreeMesh(mesh::Inti.Mesh, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64, parametrizations::Vector{Function})
+function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64)
     # Creates the meshes describing the boundary region and the quadtree
     
     gmsh.option.setNumber("General.Verbosity", 3)
 
-    initializeMeshVariables(mesh, forcing_func)
+    initializeMeshVariables(parametrizations[1], forcing_func)
     
     forest = createQuadtree()
    
