@@ -98,7 +98,7 @@ function classifyQuad(quadrant, boundaries, orientations, delta)
     quad = QuadToCoords(quadrant)
     for (i, boundary) in enumerate(boundaries)
         for boundary_point in boundary
-            bndry_contains = PolygonAlgorithms.contains(quad, (boundary_point[1], boundary_point[2]), atol=contain_tol)
+            bndry_contains = PolygonAlgorithms.contains(quad, boundary_point, atol=contain_tol)
             push!(BiQ[i], bndry_contains)
         end
         for quad_point in quad
@@ -587,9 +587,9 @@ function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Fu
 
     initializeMeshVariables(parametrizations, forcing_func)
     println("wassup")
-    forest = createQuadtree(-1)
+    forest = createQuadtree()
     println(forest[1])
-    # println("hey")
+    
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
     
     gmsh.model.add("BoundaryRegions")
