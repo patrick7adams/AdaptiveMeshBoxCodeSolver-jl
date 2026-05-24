@@ -29,6 +29,8 @@ mesh_len = -1
 num_boundaries = -1
 bndry_mesh_points = []
 bndry_mesh_orientations = []
+global delta = 0.25
+global eps = 0.25
 global const forcing = Ref{Function}((x) -> 0)
 
 
@@ -41,28 +43,19 @@ struct geo_dom_data
     PARENT_DOM::NTuple{max_num_boundaries, Int32}
 end
 
-r0 = (-0.5, 0)
-# forcing(x) = -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2))
-# forcing(x) = exp(-100 * (x[1]^2 + x[2]^2))
-# forcing(x) = exp(x[1]+x[2])
-
-function analytic_solution(x, y)
-    sin(pi*x) * sin(pi*y)
-end
-
 tol = 1e-13
 
-function treeToCoords(x, y, bounds, lengths)
+function treeToCoords(x, y)
     # right now just converts to unit square. change later lol
-    bounds[1][1]+x/len*lengths[1], bounds[1][2]+y/len*lengths[2]
+    bounds[1][1]+x/len*mesh_len[1], bounds[1][2]+y/len*mesh_len[2]
 end
 
 function ResolvedSourceCheby(Q, f, tol)
     # first, get coefficients of interpolant into c
     coord = P4estTypes.coordinates(Q)
     width = len / 2^P4estTypes.level(Q)
-    lb = treeToCoords(coord[1], coord[2], bounds, mesh_len)
-    ub = treeToCoords(coord[1] + width, coord[2] + width, bounds, mesh_len)
+    lb = treeToCoords(coord[1], coord[2])
+    ub = treeToCoords(coord[1] + width, coord[2] + width)
     x = chebpoints((p, p), lb, ub)
     chebpoly = chebinterp(f.(x), lb, ub, tol=0)
     c = chebpoly.coefs
@@ -83,14 +76,14 @@ function QuadToCoords(quadrant)
     coord = P4estTypes.coordinates(quadrant)
     level = P4estTypes.level(quadrant)
     width = mesh_len / 2^level
-    tl = treeToCoords(coord[1], coord[2], bounds, mesh_len)
+    tl = treeToCoords(coord[1], coord[2])
     tr = (tl[1]+width[1], tl[2])
     bl = (tl[1], tl[2]+width[2])
     br = (tl[1]+width[1], tl[2]+width[2])
     return [tl, tr, br, bl]
 end
 
-function classifyQuad(quadrant, boundaries, orientations, delta)
+function classifyQuad(quadrant, boundaries, orientations)
     GEO = regular
     DOM = Set()
     BiQ = [[] for boundary in boundaries]
@@ -98,11 +91,11 @@ function classifyQuad(quadrant, boundaries, orientations, delta)
     quad = QuadToCoords(quadrant)
     for (i, boundary) in enumerate(boundaries)
         for boundary_point in boundary
-            bndry_contains = PolygonAlgorithms.contains(quad, boundary_point, atol=contain_tol)
+            bndry_contains = PolygonAlgorithms.contains(quad, boundary_point, atol=0.0)
             push!(BiQ[i], bndry_contains)
         end
         for quad_point in quad
-            bndry_contains = PolygonAlgorithms.contains(boundary, quad_point, atol=contain_tol)
+            bndry_contains = PolygonAlgorithms.contains(boundary, quad_point, atol=0.0)
             orient_bool = orientations[i] > 0 ? false : true
             # PROBLEM: main outer boundary does not contain (0, 0), this is weird!!
             push!(QiB[i], xor(bndry_contains, orient_bool))
@@ -136,7 +129,7 @@ function classifyQuad(quadrant, boundaries, orientations, delta)
     (parent_GEO, parent_DOM) = getParentData(quadrant)
     if length(parent_DOM) > 0
         if GEO == regular
-            DOM = classifyQuadDomainClose(quadrant, boundaries, delta)
+            DOM = classifyQuadDomainClose(quadrant, boundaries)
         end
     end
     return GEO, DOM
@@ -153,7 +146,7 @@ function getParentData(quadrant)
     return GEO, DOM
 end
 
-function classifyQuadDomainClose(quadrant, boundaries, delta)
+function classifyQuadDomainClose(quadrant, boundaries)
     DOM = []
     quad = QuadToCoords(quadrant)
     max_quad_len = distance(quad[1], quad[3]) # corner to corner distance
@@ -166,6 +159,7 @@ function classifyQuadDomainClose(quadrant, boundaries, delta)
             dist = distance(quad[1], point)
             # now calc h
             h = get_h(boundary, j)
+            # h = 0.123121812267885
             if dist < (1+delta)*h
                 push!(DOM, i)
                 break
@@ -176,6 +170,14 @@ function classifyQuadDomainClose(quadrant, boundaries, delta)
                 for k in 2:4
                     dist = distance(quad[k], point)
                     if dist < (1+delta)*h
+                        # if P4estTypes.coordinates(quadrant) == (536870912, 805306368) && P4estTypes.level(quadrant) == 4
+                        #     println(quadrant)
+                        #     println((1+delta)*h)
+                        #     println(dist)
+                        #     println(point)
+                        #     println(quad)
+                        #     println(k)
+                        # end
                         push!(DOM, i)
                         found = true
                         break
@@ -210,19 +212,8 @@ function get_GEO_DOM(quadrant)
     return GEO, DOM
 end
 
-function getQuadCoordsFromInternalCoord(forest, coordinate)
-    for quad in forest[1]
-        quad_coords = QuadToCoords(quad)
-        if PolygonAlgorithms.contains(quad_coords, coordinate, atol=contain_tol)
-            return P4estTypes.coordinates(quad), P4estTypes.level(quad)
-        end
-    end
-end
-
 # !!! ADD TO THIS LATER AS WE DEAL WITH HARDER BOUNDARIES !!! #
 function refinementStage(forest, treeid, quadrant)
-    delta = 0.1
-    eps = 0.3
     GEO, DOM = get_GEO_DOM(quadrant)
     quad_level = P4estTypes.level(quadrant)
     quad_coords = QuadToCoords(quadrant)
@@ -273,7 +264,7 @@ end
 
 function initializeQuadrant(forest, treeid, quadrant)
     # classifyQuad should NEVER RUN if quadrant doesn't have parent data defined!!!
-    GEO, DOM = classifyQuad(quadrant, bndry_mesh_points, bndry_mesh_orientations, 0.1)
+    GEO, DOM = classifyQuad(quadrant, bndry_mesh_points, bndry_mesh_orientations)
     # parent is (939524096, 536870912) level 4
     # child is (973078528, 536870912) level 5
     DOM_list = [x for x in DOM] 
@@ -294,7 +285,7 @@ function replaceQuadrant(forest, treeid, outgoing, incoming)
         for quadrant in incoming
             geo_dom_val_tmp = geo_dom_data(null, null_list, parent_GEO, parent_DOM_NTuple)
             P4estTypes.unsafe_storeuserdata!(quadrant, geo_dom_val_tmp)
-            GEO, DOM = classifyQuad(quadrant, bndry_mesh_points, bndry_mesh_orientations, 0.1)
+            GEO, DOM = classifyQuad(quadrant, bndry_mesh_points, bndry_mesh_orientations)
             DOM_list = [x for x in DOM] 
             DOM_list = vcat(DOM_list, [-1 for i in 1:max_num_boundaries-length(DOM_list)])
             DOM_NTuple = NTuple{max_num_boundaries, Int32}(DOM_list)
@@ -327,17 +318,29 @@ function getInternalBoundaryPoints(tree)
                 coords = QuadToCoords(quadrant)
                 for i in 1:4
                     # add edge for each point to connection dict
-                    point, right_point = coords[i], coords[mod1(i+1, 4)]                    
+                    point, right_point = coords[i], coords[mod1(i+1, 4)]                   
                     # if !haskey(point_connection_dict, point)
                     #     point_connection_dict[point] = Set{Tuple{Float64, Float64}}()
                     # end
                     # push!(point_connection_dict[point], middle_point, right_point)
                     # push!(point_connection_dict[middle_point], point, right_point)
                     # push!(point_connection_dict[right_point], point, middle_point)
-                    intermediary_points = [((point[1]+right_point[1])/2*i, (point[2]+right_point[2])/2*i) for i in 1:2^level_diff-1]
+                    intermediary_points = []
+                    for i in 1:2^level_diff - 1
+                        x_diff = right_point[1] - point[1]
+                        x_val = point[1] + x_diff/2^level_diff*i
+
+                        y_diff = right_point[2] - point[2]
+                        y_val = point[2] + y_diff/2^level_diff*i
+
+                        push!(intermediary_points, (x_val, y_val))
+                    end
+                    # intermediary_points = [((right_point[1] - point[1])/(2^level_diff)*i, (right_point[2] - point[2])/(2^level_diff)*i) for i in 1:2^level_diff-1]
                     all_edge_points = [point; intermediary_points; right_point]
+                    # println(all_edge_points)
                     for i in 1:length(all_edge_points)-1
                         edge = (all_edge_points[i], all_edge_points[i+1])
+                        # println(edge)
                         reverse_edge = (all_edge_points[i+1], all_edge_points[i])
                         found_edge = false
                         for other_edge in keys(edge_counts)
@@ -361,10 +364,12 @@ function getInternalBoundaryPoints(tree)
         good_edges = []
         for edge in keys(edge_counts)
             count = edge_counts[edge]
-            if count == 1 && PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1], atol=1e-15)
+            if count == 1 && PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1], atol=0.0)
                 push!(good_edges, edge)
             end
         end
+        # println(good_edges)
+        showEdgeList(good_edges)
         start_edge = good_edges[1]
         edge_connections = [start_edge[1], start_edge[2]]
         k = 2
@@ -380,6 +385,7 @@ function getInternalBoundaryPoints(tree)
             end
             k += 1
         end
+        # println(edge_connections)
         push!(edge_list, edge_connections)
     end
     return edge_list
@@ -448,24 +454,9 @@ function showGeoQuadtreeMesh(msh, forest)
     display(fig)
 end
 
-function createMeshFromQuadtree(forest)
-    box_list = []
-    for quad in forest[1]
-        coords = QuadToCoords(quad)
-        GEO, DOM = get_GEO_DOM(quad)
-        if GEO == regular && length(DOM) == 0
-        # if (GEO == regular && 2 in DOM) || (GEO == cut && 2 in DOM)
-            box = Meshes.Box(coords[1], coords[3])
-            push!(box_list, box)
-        end
-    end
-    geometry = Meshes.GeometrySet(box_list)
-    return geometry
-end
-
 function getBoundaryPoints(parametrization::Function, num_points::Int64)::Vector{Tuple{Float64, Float64}}
     boundary = Vector{Tuple{Float64, Float64}}()
-    for t in range(0, stop=1, length=num_points)
+    for t in range(0, stop=1, length=num_points)[1:end-1]
         point = parametrization(t)
         push!(boundary, point)
     end
@@ -476,13 +467,12 @@ function getMeshBounds(boundary_parametrization::Function)::Tuple{Tuple{Float64,
     lb = [Inf, Inf]
     ub = [-Inf, -Inf]
     # using 1000 sample points, this doesn't have to be perfect:
-    for i in range(0, stop = 1, length = 1000)
-        val = boundary_parametrization(i)
+    for point in getBoundaryPoints(boundary_parametrization, 1000)
         for j in 1:2
-            if val[j] < lb[j]
-                lb[j] = val[j]
-            elseif val[j] > ub[j]
-                ub[j] = val[j]
+            if point[j] < lb[j]
+                lb[j] = point[j]
+            elseif point[j] > ub[j]
+                ub[j] = point[j]
             end
         end
     end
@@ -527,7 +517,7 @@ function createQuadtree(maxlevel = -1)
     return forest
 end
 
-function initializeMeshVariables(parametrizations::Vector{Function}, forcing_func::Function)
+function initializeMeshVariables(parametrizations::Vector{Function}, forcing_func::Function, meshsize::Float64)
     tmp_bounds = getMeshBounds(parametrizations[1])
     global forcing[] = forcing_func
     tmp_mesh_len = [tmp_bounds[2][1] - tmp_bounds[1][1], tmp_bounds[2][2] - tmp_bounds[1][2]]
@@ -539,8 +529,9 @@ function initializeMeshVariables(parametrizations::Vector{Function}, forcing_fun
     global bndry_mesh_orientations = Vector{Int32}()
     global num_boundaries = length(parametrizations)
 
+    # first enforcement on boundary points: must be divisible by four for symmetry
     for i in 1:num_boundaries
-        boundary_points = getBoundaryPoints(parametrizations[i], 100)
+        boundary_points = getBoundaryPoints(parametrizations[i], Int64(ceil(2.5 / meshsize))*4+1)
         # println(boundary_points)
         push!(bndry_mesh_points, boundary_points)
         if i == 1
@@ -548,10 +539,7 @@ function initializeMeshVariables(parametrizations::Vector{Function}, forcing_fun
         else
             push!(bndry_mesh_orientations, -1)
         end
-    end    
-    # println(bndry_mesh_points)
-    # println(bndry_mesh_orientations)
-    # println(num_boundaries)
+    end
 
     if num_boundaries > max_num_boundaries
         error("Too many boundaries! Should be < ", max_num_boundaries)
@@ -579,27 +567,43 @@ function createCombinedMesh(forest, surface_tag)
     gmsh.model.mesh.addElementsByType(surface_tag, element_type, element_tags, node_tags)
 end
 
+function getQuadFromPoint(tree::P4estTypes.Tree, point::Tuple{Float64, Float64})::P4estTypes.QuadrantWrapper
+    for quad in tree
+        coords = QuadToCoords(quad)
+        if PolygonAlgorithms.contains(coords, point, atol = 0.0)
+            return quad
+        end
+    end
+end
+
 function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Function, meshsize::Float64, max_triangle_size::Float64)
     # Creates the meshes describing the boundary region and the quadtree
     # important note: the first function in parametrizations is assumed to be the boundary, the others are assumed to be holes
     
     gmsh.option.setNumber("General.Verbosity", 3)
 
-    initializeMeshVariables(parametrizations, forcing_func)
-    println("wassup")
+    initializeMeshVariables(parametrizations, forcing_func, meshsize)
+    # println("wassup")
     forest = createQuadtree()
-    println(forest[1])
+    # println(forest[1])
+    # quad1 = getQuadFromPoint(forest[1], (0.1, 0.6))
+    # quad2 = getQuadFromPoint(forest[1], (-0.1, 0.6))
+    # println(bndry_mesh_points)
+    # println(length(bndry_mesh_points[1]))
+    
+    # println(QuadToCoords(quad1))
+    # println(QuadToCoords(quad2))
     
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
-    
+
     gmsh.model.add("BoundaryRegions")
 
     boundary_linetags, internal_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, internalBoundaryPoints, meshsize, max_triangle_size, parametrizations)
-    println("hi")
+    # println("hi")
     gmsh.model.geo.synchronize()
     gmsh.model.mesh.removeDuplicateNodes()
     gmsh.model.mesh.generate(2)
-    println("no")
+    # println("no")
     for i in 1:num_boundaries
         boundary_str = string("Boundary ", i)
         gmsh.model.addPhysicalGroup(2, [surface_tags[i]], -1, boundary_str)
@@ -621,6 +625,8 @@ function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Fu
     Inti.clear_entities!()
     combined_msh = Inti.import_mesh(; dim = 2)
 
+    showGeoQuadtreeMesh(combined_msh, forest)
+
     gmsh.clear()
     
     gmsh.finalize()
@@ -636,23 +642,6 @@ function calculateVolumePotential(dom_mesh, f)
     volume_potential = (x) -> Inti.integrate((q) -> f(q.coords) * greens_fn(x, q.coords), dom_quad)
     return volume_potential
 end
-
-# driver code
-# gmsh.initialize()
-# gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
-# gmsh.open("testing.msh")
-# msh = Inti.import_mesh(; dim = 2)
-# calculateMeshvals(msh)
-# mesh = createMesh(0.25, 0.25)
-# showMesh(mesh)
-
-# showMesh(mesh)
-# gmsh.initialize()
-# parametrizations::Vector{Function} = [(x) -> [cos(2*pi*x), sin(2*pi*x)]]
-# quadtree_mesh = createQuadtreeMesh(mesh, (x) -> 1, 0.25, 0.25, parametrizations)
-# showMesh(quadtree_mesh)
-# dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
-
 
 # TODO
 # - fix issues when boundaries are close
