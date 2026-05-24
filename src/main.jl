@@ -303,7 +303,7 @@ function getInternalBoundaryPoints(tree)
     for quad in tree
         GEO, DOM = get_GEO_DOM(quad)
         lvl = P4estTypes.level(quad)
-        if (GEO == regular || GEO == cut) && lvl > max_level 
+        if (GEO == regular && length(DOM) > 0 || GEO == cut && length(DOM) > 0) && lvl > max_level 
             max_level = lvl
         end
     end
