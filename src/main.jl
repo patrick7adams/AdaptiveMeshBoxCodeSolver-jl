@@ -159,7 +159,7 @@ function classifyQuadDomainClose(quadrant, boundaries)
             dist = distance(quad[1], point)
             # now calc h
             h = get_h(boundary, j)
-            # h = 0.123121812267885
+            # h = 0.19603428065912154
             if dist < (1+delta)*h
                 push!(DOM, i)
                 break
@@ -299,16 +299,17 @@ function getInternalBoundaryPoints(tree)
     # new algorithm: we want every point that is on the "outside" of the quadtree; essentially every cut
 
     # first find lowest quad level
-    max_level = 0
-    for quad in tree
-        GEO, DOM = get_GEO_DOM(quad)
-        lvl = P4estTypes.level(quad)
-        if (GEO == regular && length(DOM) > 0 || GEO == cut && length(DOM) > 0) && lvl > max_level 
-            max_level = lvl
-        end
-    end
+    
     edge_list = []
     for boundary in 1:num_boundaries
+        max_level = 0
+        for quad in tree
+            GEO, DOM = get_GEO_DOM(quad)
+            lvl = P4estTypes.level(quad)
+            if (GEO == regular && boundary in DOM || GEO == cut && boundary in DOM) && lvl > max_level 
+                max_level = lvl
+            end
+        end
         point_connection_dict = Dict{Tuple{Float64, Float64}, Set{Tuple{Float64, Float64}}}()
         edge_counts = Dict{Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}, Int32}()
         for quadrant in tree
@@ -364,7 +365,7 @@ function getInternalBoundaryPoints(tree)
         good_edges = []
         for edge in keys(edge_counts)
             count = edge_counts[edge]
-            if count == 1 && PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1], atol=0.0)
+            if count == 1 && xor(PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1], atol=0.0), bndry_mesh_orientations[boundary] == -1)
                 push!(good_edges, edge)
             end
         end
@@ -484,17 +485,17 @@ function createMeshWithInternalBoundary(boundary_points, internal_points, meshsi
     all_boundary_linetags = []
     all_internal_linetags = []
     for i in 1:num_boundaries
-        # boundary_linetag = Inti.gmsh_curve(0, 1; npts = 100, meshsize = max_triangle_size) do s
-        #     return Inti.Point2D(parametrizations[i](s)[1], parametrizations[i](s)[2])
-        # end
         points = []
-        for t in range(0, stop = 1, length=Int32(ceil(100 / meshsize)))[1:end-1]
-            point = (parametrizations[i](t)[1], parametrizations[i](t)[2])
+        for point in boundary_points[i]
             push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
         end
-        push!(points, points[1])
-        polyloop = gmsh.model.geo.addPolyline(points)
-        boundary_curve_loop = gmsh.model.geo.addCurveLoop([polyloop])
+        lineTags = []
+        for i in 1:length(points)
+            push!(lineTags, gmsh.model.geo.addLine(points[i], points[mod1(i+1, length(points))]))
+        end
+        
+        # polyloop = gmsh.model.geo.addPolyline(points)
+        boundary_curve_loop = gmsh.model.geo.addCurveLoop(lineTags)
         internal_curve_loop, internal_linetags = createInternalCurveLoop(internal_points[i], max_triangle_size)
         if bndry_mesh_orientations[i] == 1
             surf = gmsh.model.geo.addPlaneSurface([boundary_curve_loop, internal_curve_loop])
@@ -502,7 +503,7 @@ function createMeshWithInternalBoundary(boundary_points, internal_points, meshsi
             surf = gmsh.model.geo.addPlaneSurface([internal_curve_loop, boundary_curve_loop])
         end
         push!(surface_tags, surf)
-        push!(all_boundary_linetags, polyloop)
+        push!(all_boundary_linetags, lineTags...)
         push!(all_internal_linetags, internal_linetags...)
     end
     return all_boundary_linetags, all_internal_linetags, surface_tags
@@ -531,6 +532,7 @@ function initializeMeshVariables(parametrizations::Vector{Function}, forcing_fun
 
     # first enforcement on boundary points: must be divisible by four for symmetry
     for i in 1:num_boundaries
+        # boundary_points = getBoundaryPoints(parametrizations[i], 29)
         boundary_points = getBoundaryPoints(parametrizations[i], Int64(ceil(2.5 / meshsize))*4+1)
         # println(boundary_points)
         push!(bndry_mesh_points, boundary_points)
@@ -588,8 +590,8 @@ function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Fu
     # println(forest[1])
     # quad1 = getQuadFromPoint(forest[1], (0.1, 0.6))
     # quad2 = getQuadFromPoint(forest[1], (-0.1, 0.6))
-    # println(bndry_mesh_points)
-    # println(length(bndry_mesh_points[1]))
+    println(length(bndry_mesh_points[1]))
+    println(length(bndry_mesh_points[2]))
     
     # println(QuadToCoords(quad1))
     # println(QuadToCoords(quad2))

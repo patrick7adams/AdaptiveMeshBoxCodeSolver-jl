@@ -4,6 +4,7 @@ include("test_main_volume_potentials.jl")
 include("test_quadtree_mesh.jl")
 include("test_quadtree_vs_triangle_mesh.jl")
 include("test_triangle_mesh.jl")
+include("weird_mesh_tests.jl")
 
 function test_simple_triangle_mesh()
     @testset "Simple Triangle Mesh" begin
@@ -95,10 +96,12 @@ end
 @testset verbose = true "All Tests" begin
     # test_simple_triangle_mesh() # these won't be accurate until curved meshes
     # test_simple_quadtree_mesh() # these won't be accurate until curved meshes
-    test_simple_quadtree_mesh_area()
+    # test_simple_quadtree_mesh_area()
     # test_individual_triangles() # these work
     # test_individual_quads() # weird rn but they work
     # test_greens_identity() # these work to different tols (max 1e-13)
     # test_quadtree_vs_triangle() # these work to different tols (max 1e-13)
     # test_simple_quadtree_greens_third_identity_complex_forcing()
+    # test_simple_meshsizes()
+    test_simple_hole_mesh()
 end;

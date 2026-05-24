@@ -140,29 +140,3 @@ function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
     gmsh.finalize()
     return mesh
 end
-
-function getLabels()
-    labels = ["Quadtree"]
-    for i in 1:num_boundaries
-        push!(labels, string("Boundary ", i))
-    end
-    return labels
-end
-
-function getMeshList()
-    gmsh.initialize()
-    meshes = []
-    for name in getLabels()
-        gmsh.open(string(name, ".msh"))
-        msh = Inti.import_mesh(; dim = 2)
-        push!(meshes, msh)
-    end
-    gmsh.finalize()
-    return meshes
-end
-
-function get_boundary(mesh)
-    # gets the boundary of the mesh according to my label system
-    labels = getLabels()[2:end]
-    return Inti.Domain((e) -> Inti.geometric_dimension(e) == 1 && length(Inti.labels(e)) > 0 && Inti.labels(e)[1] in labels, mesh)
-end

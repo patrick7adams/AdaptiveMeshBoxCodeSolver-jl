@@ -3,7 +3,7 @@ include("../src/main.jl")
 using Test
 
 function test_simple_quadtree_mesh_area()
-    meshsize = 0.1
+    meshsize = 0.025
 
     forcing_function = (x) -> 1
 

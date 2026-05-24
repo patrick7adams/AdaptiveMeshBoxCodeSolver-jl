@@ -325,9 +325,10 @@ function test_simple_quadtree_greens_third_identity_sin_term()
 end
 
 function test_simple_quadtree_greens_third_identity_complex_forcing()
-    meshsize = 0.25
+    meshsize = 0.05
 
     x_test = (1, 1) # point just outside of the region
+    r0 = (-0.5, 0.0)
     u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
     # check these eqns lol
     partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
@@ -354,7 +355,7 @@ function test_simple_quadtree_greens_third_identity_complex_forcing()
     showMesh(quadtree_mesh)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
-    boundary = get_boundary(quadtree_mesh)
+    boundary = Inti.boundary(dom)
 
     dom_mesh = Inti.view(quadtree_mesh, dom)
     boundary_mesh = Inti.view(quadtree_mesh, boundary)
