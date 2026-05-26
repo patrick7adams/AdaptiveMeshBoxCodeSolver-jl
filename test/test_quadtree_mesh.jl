@@ -3,13 +3,24 @@ include("../src/main.jl")
 using Test
 
 function test_simple_quadtree_mesh_area()
-    meshsize = 0.025
-
     forcing_function = (x) -> 1
 
     gmsh.initialize()
     parametrizations::Vector{Function} = [(x) -> (cos(x*2*pi), sin(x*2*pi))]
-    quadtree_mesh = createQuadtreeMesh(parametrizations, forcing_function, meshsize, meshsize)
+    quadtree_mesh = createQuadtreeMesh(parametrizations, forcing_function)
+
+    # parametrization_dict = Dict{Inti.EntityKey, Function}()
+    # parametrization = (x) -> [cos(x*2*pi), sin(x*2*pi)]
+    # for entity in Inti.entities(quadtree_mesh)
+    #     entity.dim == 2 || continue
+    #     l = Inti.labels(entity)
+    #     if "Boundary 1" in l
+    #         parametrization_dict[entity] = parametrization
+    #     end
+    # end
+
+    
+    # curved_mesh = Inti.curve_mesh(quadtree_mesh, parametrization_dict, 6)
 
     dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
     dom_mesh = Inti.view(quadtree_mesh, dom)

@@ -93,6 +93,16 @@ function test_quadtree_vs_triangle()
     end;
 end
 
+function weird_mesh_tests()
+    @testset "Test Weird Meshes" begin
+        # test_simple_meshsizes()
+        test_simple_hole_mesh()
+        # test_square_hole_mesh()
+        # test_ellipse_mesh()
+        # test_ellipse_mesh_area()
+    end;
+end
+
 @testset verbose = true "All Tests" begin
     # test_simple_triangle_mesh() # these won't be accurate until curved meshes
     # test_simple_quadtree_mesh() # these won't be accurate until curved meshes
@@ -102,6 +112,5 @@ end
     # test_greens_identity() # these work to different tols (max 1e-13)
     # test_quadtree_vs_triangle() # these work to different tols (max 1e-13)
     # test_simple_quadtree_greens_third_identity_complex_forcing()
-    # test_simple_meshsizes()
-    test_simple_hole_mesh()
+    weird_mesh_tests()
 end;

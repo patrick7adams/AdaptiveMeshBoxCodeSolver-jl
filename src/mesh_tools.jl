@@ -65,41 +65,26 @@ function showEdgeList(edges)
     display(fig)
 end
 
-function createCurveLoop(points, max_triangle_size)
-    pointTags = []
-    for i in 1:length(points)
-        if distance(points[i], points[mod1(i+1, end)]) > 1e-6
-            push!(pointTags, gmsh.model.geo.addPoint(points[i]..., 0.0, max_triangle_size)) # TMP
-        end
-    end
-    lineTags = []
-    for i in 1:length(pointTags)
-        push!(lineTags, gmsh.model.geo.addLine(pointTags[i], pointTags[mod1(i+1, length(pointTags))]))
-    end
-    curve_loop = gmsh.model.geo.addCurveLoop(lineTags)
-    return curve_loop, lineTags
-end
-
-function createInternalCurveLoop(points, max_triangle_size)
+function createCurveLoop(points)
     pointTags = []
     for i in 1:length(points)
         if distance(points[i], points[mod1(i+1, end)]) > 1e-6
             # first determine the size of the quad the point is associated with
             size = min(distance(points[i], points[mod1(i+1, end)]), distance(points[i], points[mod1(i-1, end)]))
-            push!(pointTags, gmsh.model.geo.addPoint(points[i]..., 0.0, size)) # TMP
+            push!(pointTags, gmsh.model.occ.addPoint(points[i]..., 0.0, size)) # TMP
         end
     end
     lineTags = []
     for i in 1:length(pointTags)
-        lineTag = gmsh.model.geo.addLine(pointTags[i], pointTags[mod1(i+1, length(pointTags))])
-        gmsh.model.geo.mesh.setTransfiniteCurve(lineTag, 2)
+        lineTag = gmsh.model.occ.addLine(pointTags[i], pointTags[mod1(i+1, length(pointTags))])
         push!(lineTags, lineTag)
     end
-    curve_loop = gmsh.model.geo.addCurveLoop(lineTags)
+    gmsh.model.occ.synchronize()
+    curve_loop = gmsh.model.occ.addCurveLoop(lineTags)
     return curve_loop, lineTags
 end
 
-function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
+function createMesh(meshsize; outside_curve = [], holes = [])
     # this is good so far. I can now create inscribed mesh polygons from a
     # list of points. Very good, now will work on refinement criteria
     # and return once proper internal mesh is done.
@@ -119,20 +104,19 @@ function createMesh(meshsize, max_triangle_size; outside_curve = [], holes = [])
         curve_loop = gmsh.model.geo.addCurveLoop([polyloop])
         push!(loops, curve_loop)
     else
-        curve_loop = createCurveLoop(outside_curve, max_triangle_size)
+        curve_loop = createCurveLoop(outside_curve)
         push!(loops, curve_loop)
     end
 
     if holes != []
         for hole in holes
-            hole_curve = createCurveLoop(hole, max_triangle_size)
+            hole_curve = createCurveLoop(hole)
             push!(loops, hole_curve)
         end
     end
     surf = gmsh.model.geo.addPlaneSurface(loops)
     
     gmsh.model.geo.synchronize()
-    # gmsh.option.setNumber("Mesh.MeshSizeMax", max_triangle_size)
     # gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
     gmsh.model.mesh.generate(2)
     gmsh.model.mesh.setOrder(order)
