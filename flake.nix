@@ -62,7 +62,7 @@
               pkgs.paraview
               pkgs.gmsh
             ];
-            extraHook = "echo 'welcome to research city!67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n67\n'";
+            extraHook = "echo 'welcome to research city!'";
           };
 
         };
