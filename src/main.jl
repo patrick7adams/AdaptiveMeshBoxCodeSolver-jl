@@ -6,18 +6,6 @@
 #   function values with chebyshev points
 # - Create heatmap display for integral error at different levels of 
 #   quadtree depth, generally create multiple methods of display
-include("mesh_tools.jl")
-
-using P4estTypes;
-using Polynomials
-using FastChebInterp
-using Inti, Meshes, CairoMakie, StaticArrays, Gmsh
-using PolygonAlgorithms
-using GeometryBasics
-using Colorfy
-using FMM2D
-using IterativeSolvers, LinearAlgebra
-# using BenchmarkTools
 
 @enum GEOS null=0 cut=1 regular=2 contains=3 outside=4
 
@@ -97,11 +85,11 @@ function classifyQuad(quadrant, boundaries, orientations)
         for quad_point in quad
             bndry_contains = PolygonAlgorithms.contains(boundary, quad_point, atol=0.0)
             orient_bool = orientations[i] > 0 ? false : true
-            # PROBLEM: main outer boundary does not contain (0, 0), this is weird!!
             push!(QiB[i], xor(bndry_contains, orient_bool))
         end
     end
     for (i, boundary) in enumerate(boundaries)
+        # if no quad points are in the boundary and some boundary point is not in the quad
         if !any(QiB[i]) && !all(BiQ[i])
             GEO = outside
             DOM = i
@@ -151,9 +139,6 @@ function classifyQuadDomainClose(quadrant, boundaries)
     quad = QuadToCoords(quadrant)
     max_quad_len = distance(quad[1], quad[3]) # corner to corner distance
     for (i, boundary) in enumerate(boundaries)
-        # going to approximate h gamma locally at each boundary point
-        # this is slow but works better for later?
-
         # first, initial pass for the first quadrant point
         for (j, point) in enumerate(boundary)
             dist = distance(quad[1], point)
@@ -239,11 +224,14 @@ function refinementStage(forest, treeid, quadrant)
             dist = minimum(distance(point, quad_coords[k]) for k in 1:4)
             local_h = get_h(boundary, i)
             quad_h = distance(quad_coords[1], quad_coords[2])
-            if quad_h > (1+eps) * local_h
-                if GEO == regular && dist < (1+delta)*local_h
-                    return true
-                elseif GEO != regular
-                    return true
+            max_quad_h = distance(quad_coords[1], quad_coords[3])
+            if dist < (1+delta)*local_h + max_quad_h
+                if quad_h > (1+eps) * local_h
+                    if GEO == regular && dist < (1+delta)*local_h
+                        return true
+                    elseif GEO != regular
+                        return true
+                    end
                 end
             end
         end
@@ -292,6 +280,24 @@ function replaceQuadrant(forest, treeid, outgoing, incoming)
             geo_dom_val = geo_dom_data(GEO, DOM_NTuple, parent_GEO, parent_DOM_NTuple)
             P4estTypes.unsafe_storeuserdata!(quadrant, geo_dom_val)
         end
+    elseif length(incoming) == 1 && length(incoming) < length(outgoing)
+        GEO, DOM = classifyQuad(incoming[1], bndry_mesh_points, bndry_mesh_orientations)
+        DOM_list = [x for x in DOM] 
+        DOM_list = vcat(DOM_list, [-1 for i in 1:max_num_boundaries-length(DOM_list)])
+        DOM_NTuple = NTuple{max_num_boundaries, Int32}(DOM_list)
+        # now just associate parent_DOM with all boundaries of the outgoing doms
+        # TO BE CLEAR: THIS IS NOT FINISHED! NEED BETTER SYSTEM FOR GEO ASSOCIATION
+        # BUT DOM IS THE ONLY THING NEEDED NOW SO ONLY DOING THAT
+        parent_DOM = Set{Int32}()
+        for quadrant in outgoing
+            child_GEO, child_DOM = get_GEO_DOM(quadrant)
+            union!(parent_DOM, child_DOM)
+        end
+        parent_DOM_list = [x for x in parent_DOM] 
+        parent_DOM_list = vcat(parent_DOM_list, [-1 for i in 1:max_num_boundaries-length(parent_DOM_list)])
+        parent_DOM_NTuple = NTuple{max_num_boundaries, Int32}(parent_DOM_list)
+        geo_dom_val = geo_dom_data(GEO, DOM_NTuple, null, parent_DOM_NTuple)
+        P4estTypes.unsafe_storeuserdata!(incoming[1], geo_dom_val)
     end
 end
 
@@ -365,13 +371,13 @@ function getInternalBoundaryPoints(tree)
         good_edges = []
         for edge in keys(edge_counts)
             count = edge_counts[edge]
-            if count == 1 && xor(PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1], atol=0.0), bndry_mesh_orientations[boundary] == -1)
+            if count == 1 && xor(PolygonAlgorithms.contains(bndry_mesh_points[boundary], edge[1], atol=0.0, on_border_is_inside=false), bndry_mesh_orientations[boundary] == -1)
                 push!(good_edges, edge)
             end
             # push!(good_edges, edge)
         end
         # println(good_edges)
-        showEdgeList(good_edges)
+        # showEdgeList(good_edges)
         start_edge = good_edges[1]
         edge_connections = [start_edge[1], start_edge[2]]
         k = 2
@@ -428,21 +434,19 @@ function createMeshByGeoFromQuadtree(forest)
     return geometries
 end
 
-function showGeoQuadtreeMesh(msh, forest)
+function showGeoQuadtreeMesh(meshes, forest)
+    println("Showing GEO Quadtree mesh!")
     geometries = createMeshByGeoFromQuadtree(forest)
-    Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
-    Γ = Inti.boundary(Ω)
-    # Ω_msh = @views msh[Ω]
-    Γ_msh = @views msh[Γ]
+    boundary_meshes = [view(mesh, get_boundary(mesh)) for mesh in meshes[2:end]]
     fig = viz(
-        Γ_msh;
+        boundary_meshes[1];
         segmentsize = 1,
         showsegments = true,
         color= :red,
         axis = (aspect = DataAspect(),),
-        figure = (; size = (500, 400)),
+        figure = (; size = (400, 400)),
     )
-    # viz!(Γ_msh; color = :red, segmentsize = 1)
+    
     color_vals = [0.8, 0.5, 0, 0.2, 1]
     for i = 1:num_boundaries
         push!(color_vals, 0.8 - i*(0.2)/num_boundaries)
@@ -452,79 +456,119 @@ function showGeoQuadtreeMesh(msh, forest)
     for i in 1:length(geometries)
         viz!(geometries[i]; color=colors[i], showsegments = true, segmentsize = 1)
     end
-    viz!(Γ_msh; color = :red, segmentsize = 1)
+    for boundary_mesh in boundary_meshes
+        println("Showing a boundary")
+        viz!(boundary_mesh; color = :red, segmentsize = 1)
+    end
+    display(fig)
+end
+
+function showGeoQuadtreeMesh(forest)
+    println("Showing GEO Quadtree mesh!")
+    geometries = createMeshByGeoFromQuadtree(forest)
+    color_vals = [0.8, 0.5, 0, 0.2, 1]
+    for i = 1:num_boundaries
+        push!(color_vals, 0.8 - i*(0.2)/num_boundaries)
+    end
+    colorfier = Colorfy.Colorfier(color_vals)
+    colors = Colorfy.colors(colorfier)
+    fig = viz(
+        geometries[1];
+        segmentsize = 1,
+        showsegments = true,
+        color= colors[1],
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (1000, 1000)),
+    )
+    for i in 2:length(geometries)
+        viz!(geometries[i]; color=colors[i], showsegments = true, segmentsize = 1)
+    end
+    for boundary in bndry_mesh_points
+        for point in boundary
+            viz!(Meshes.Point(point...), color=:red, pointsize=3, showpoints=true)
+        end
+    end
     display(fig)
 end
 
 function getBoundaryPoints(parametrization::Function, num_points::Int64)::Vector{Tuple{Float64, Float64}}
     boundary = Vector{Tuple{Float64, Float64}}()
-    for t in range(0, stop=1, length=num_points)[1:end-1]
+    for t in range(0, stop=1, length=num_points+1)[1:end-1]
         point = parametrization(t)
         push!(boundary, point)
     end
     return boundary
 end
 
-function getMeshBounds(boundary_parametrization::Function)::Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}
+function getMeshBounds(boundary_parametrizations::Vector{Function})::Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}
     lb = [Inf, Inf]
     ub = [-Inf, -Inf]
     # using 1000 sample points, this doesn't have to be perfect:
-    for point in getBoundaryPoints(boundary_parametrization, 1000)
-        for j in 1:2
-            if point[j] < lb[j]
-                lb[j] = point[j]
-            elseif point[j] > ub[j]
-                ub[j] = point[j]
+    for parametrization in boundary_parametrizations
+        for point in getBoundaryPoints(parametrization, 128)
+            for j in 1:2
+                if point[j] < lb[j]
+                    lb[j] = point[j]
+                elseif point[j] > ub[j]
+                    ub[j] = point[j]
+                end
             end
         end
     end
     return ((lb[1], lb[2]), (ub[1], ub[2]))
 end
 
-function createMeshWithInternalBoundary(boundary_points, internal_points, parametrizations)
-    surface_tags = []
-    all_boundary_linetags = []
-    all_internal_linetags = []
-    println(boundary_points)
-    println(bndry_mesh_orientations)
+function createBoundaryStripMeshes(boundary_points, internal_points, parametrizations)
+    meshes = []
     for i in 1:num_boundaries
-        points = []
-        for (j, point) in enumerate(boundary_points[i])
-            # make meshsize local
-            # println(point)
-            # println(boundary_points[i][mod1(j+1, length(boundary_points[i]))])
-            # meshsize = max(distance(point, boundary_points[i][mod1(j+1, length(boundary_points[i]))]), distance(point, boundary_points[i][mod1(j-1, length(boundary_points[i]))]))
-            # push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
-            push!(points, gmsh.model.occ.addPoint(point..., 0.0))
+        gmsh.clear()
+        # points = []
+        # for (j, point) in enumerate(boundary_points[i])
+        #     push!(points, gmsh.model.occ.addPoint(point..., 0.0))
+        # end
+        # lineTags = []
+        # for i in 1:length(points)
+        #     # println("Adding line from ", points[i], " to ", points[mod1(i+1, length(points))])
+        #     push!(lineTags, gmsh.model.occ.addLine(points[i], points[mod1(i+1, length(points))]))
+        # end
+        curves = []
+        for param in parametrizations[i]
+            curve = Inti.gmsh_curve((s) -> Inti.Point2D(param(s)...), 0.0, 1.0)
+            push!(curves, curve)
         end
-        lineTags = []
-        for i in 1:length(points)
-            # println("Adding line from ", points[i], " to ", points[mod1(i+1, length(points))])
-            push!(lineTags, gmsh.model.occ.addLine(points[i], points[mod1(i+1, length(points))]))
-        end
-        # curve = Inti.gmsh_curve((s) -> Inti.Point2D(parametrizations[i](s)...), 0.0, 1.0; npts = length(boundary_points[i]), meshsize = meshsize)
         # polyloop = gmsh.model.geo.addPolyline(points)
-        boundary_curve_loop = gmsh.model.occ.addCurveLoop(lineTags)
-        # boundary_curve_loop = gmsh.model.occ.addCurveLoop([curve])
+        # boundary_curve_loop = gmsh.model.occ.addCurveLoop(lineTags)
+        boundary_curve_loop = gmsh.model.occ.addCurveLoop([curve])
         internal_curve_loop, internal_linetags = createCurveLoop(internal_points[i])
         if bndry_mesh_orientations[i] == 1
             surf = gmsh.model.occ.addPlaneSurface([boundary_curve_loop, internal_curve_loop])
         else
             surf = gmsh.model.occ.addPlaneSurface([internal_curve_loop, boundary_curve_loop])
         end
-        push!(surface_tags, surf)
-        push!(all_boundary_linetags, lineTags...)
-        push!(all_internal_linetags, internal_linetags...)
+        gmsh.model.occ.synchronize()
+        for tag in internal_linetags
+            gmsh.model.mesh.setTransfiniteCurve(tag, 2)
+        end
+        gmsh.model.addPhysicalGroup(1, lineTags, -1, "Boundary")
+        gmsh.model.mesh.removeDuplicateNodes()
+        gmsh.model.mesh.generate(2)
+        
+        msh = Inti.import_mesh(; dim = 2)
+
+        # showMesh(msh)
+        
+        push!(meshes, msh)
     end
-    return all_boundary_linetags, all_internal_linetags, surface_tags
+
+    return meshes
 end
 
 function createQuadtree(maxlevel = -1)
     conn = P4estTypes.Connectivity{4}(:unitsquare)
     forest = pxest(conn; min_level=0, init_function = initializeQuadrant, data_type = geo_dom_data)
     refine!(forest; refine = refinementStage, replace = replaceQuadrant, recursive = true, maxlevel = maxlevel)
-    coarsen!(forest; coarsen = coarsenStage, init = initializeQuadrant, recursive = true)
-    balance!(forest; init = initializeQuadrant)
+    coarsen!(forest; coarsen = coarsenStage, replace = replaceQuadrant, recursive = true)
+    balance!(forest; replace = replaceQuadrant)
     return forest
 end
 
@@ -536,60 +580,89 @@ function get_circle_radius(p1::Tuple{Float64, Float64}, p2::Tuple{Float64, Float
     return e1_dist*e2_dist*e3_dist / (4*area)
 end
 
-function createBoundary(parametrization::Function)
-    boundary = getBoundaryPoints(parametrization, 41) # start with reasonable number of points sampled linearly along the boundary
-    return boundary
+function createBoundary(parametrization::Function)::Vector{Tuple{Float64, Float64}}
+    is_closed = distance(parametrization(0), parametrization(1)) < 1e-6
+    start_num_points = 32
+    boundary = getBoundaryPoints(parametrization, start_num_points) # start with reasonable number of points sampled linearly along the boundary
     max_error = 1e-4
     # now refine to start
     refine_points = copy(boundary)
-    refine_point_iters = 1:length(boundary)
-    refine_point_t_vals = range(0.0, stop=1.0, length=100)[1:end-1]
-    n = length(refine_points)
+    refine_point_t_vals = range(0.0, stop=1.0, length=start_num_points+1)[1:end-1]
     num_refined = 1
     while num_refined > 0
         num_refined = 0
-        new_refine_points = []
-        new_refine_point_iters = []
-        new_refine_point_t_vals = []
-        for (iter,point) in zip(refine_point_iters, refine_points)
+        new_refine_points = Vector{Tuple{Float64, Float64}}()
+        new_refine_point_t_vals = Vector{Float64}()
+        n = length(refine_points)
+        for (iter,point) in enumerate(refine_points)
+            t_val = refine_point_t_vals[iter]
             left_point, right_point = refine_points[mod1(iter-1, n)], refine_points[mod1(iter+1, n)]
             left_dist = distance(left_point, point)
             right_dist = distance(right_point, point)
-            h_local = (left_dist + right_dist) / 2
+            local_h = (left_dist + right_dist) / 2
             j = 1
-            while left_dist < 2*h_local
-                left_dist += distance(refine_points[mod1(iter-j)], refine_points[mod1(iter-j-1)])
+            while left_dist < 2*local_h
+                left_dist += distance(refine_points[mod1(iter-j, n)], refine_points[mod1(iter-j-1, n)])
                 j += 1
             end
             k = 1
-            while right_dist < 2*h_local
-                right_dist += distance(refine_points[mod1(iter+k)], refine_points[mod1(iter+k+1)])
+            while right_dist < 2*local_h
+                right_dist += distance(refine_points[mod1(iter+k, n)], refine_points[mod1(iter+k+1, n)])
                 k += 1
             end
-            if left_dist - 2*h_local > 0.5*distance(refine_points[mod1(iter-j)], refine_points[mod1(iter-j-1)])
-                j -= 1
-            end
-            if right_dist - 2*h_local > 0.5*distance(refine_points[mod1(iter+k)], refine_points[mod1(iter+k+1)])
-                k -= 1
-            end
-            left_curve_point = refine_points[iter-j]
-            right_curve_point = refine_points[iter+k]
+            # if left_dist - 2*h_local > 0.5*distance(refine_points[mod1(iter-j)], refine_points[mod1(iter-j-1)])
+            #     j -= 1
+            # end
+            # if right_dist - 2*h_local > 0.5*distance(refine_points[mod1(iter+k)], refine_points[mod1(iter+k+1)])
+            #     k -= 1
+            # end
+            left_curve_point = refine_points[mod1(iter-j, n)]
+            right_curve_point = refine_points[mod1(iter+k, n)]
             circle_rad = get_circle_radius(point, left_curve_point, right_curve_point)
             optimal_h = sqrt(8*max_error*circle_rad)
             # further refine in this case
-            if h_local > 2*optimal_h
+            if local_h > 2*optimal_h && iter != 1
                 # add points between point and left_point as well as point and right_point
-                left_t_val = (refine_point_t_vals[iter] + refine_point_t_vals[iter-1]) / 2
-                right_t_val = (refine_point_t_vals[iter] + refine_point_t_vals[iter+1]) / 2
+                # if t_val == 0.0
+                #     left_t_val = (1.0 + refine_point_t_vals[mod1(iter-1, n)]) / 2
+                #     right_t_val = (refine_point_t_vals[mod1(iter+1, n)]) / 2
+                # else
+                    
+                # end
+                left_t_val = (t_val + refine_point_t_vals[mod1(iter-1, n)]) / 2
+                if iter == n
+                    right_t_val = (t_val + 1.0) / 2
+                else
+                    right_t_val = (t_val + refine_point_t_vals[mod1(iter+1, n)]) / 2
+                end
+
                 new_left_point = parametrization(left_t_val)
                 new_right_point = parametrization(right_t_val)
-                # insert()
+                # add points
+                if length(new_refine_points) == 0 || distance(new_refine_points[end], new_left_point) >= 1e-8
+                    push!(new_refine_points, new_left_point)
+                    push!(new_refine_point_t_vals, left_t_val)
+                end
+                push!(new_refine_points, point)
+                push!(new_refine_point_t_vals, t_val)
+                if length(new_refine_points) == 0 || distance(new_refine_points[1], new_right_point) >= 1e-8
+                    push!(new_refine_points, new_right_point)
+                    push!(new_refine_point_t_vals, right_t_val)
+                end
+                num_refined += 1
+            else
+                # just add point back!
+                push!(new_refine_points, point)
+                push!(new_refine_point_t_vals, t_val)
             end
         end
+        refine_points = new_refine_points
+        refine_point_t_vals = new_refine_point_t_vals
     end
+    return refine_points
 end
 
-function initializeMeshVariables(parametrizations::Vector{Function}, forcing_func::Function)
+function initializeMeshVariables(parametrizations::Vector{Vector{Function}}, forcing_func::Function)
     tmp_bounds = getMeshBounds(parametrizations[1])
     global forcing[] = forcing_func
     tmp_mesh_len = [tmp_bounds[2][1] - tmp_bounds[1][1], tmp_bounds[2][2] - tmp_bounds[1][2]]
@@ -603,15 +676,19 @@ function initializeMeshVariables(parametrizations::Vector{Function}, forcing_fun
 
     # first enforcement on boundary points: must be divisible by four for symmetry
     for i in 1:num_boundaries
-        # boundary_points = getBoundaryPoints(parametrizations[i], 29)
-        if i == 1
-            boundary_points = getBoundaryPoints(parametrizations[i], 41)
-        else
-            boundary_points = getBoundaryPoints(parametrizations[i], 17)
+        # first check if parametrization is closed
+        if distance(parametrizations[i][1](0.0), parametrizations[i][end](1.0)) > 1e-8
+            error("Parametrization ", i, " is not closed! start value ", parametrizations[i][1](0.0), " is not equal to end value ", parametrizations[i][end](1.0), "!")
         end
-        # boundary_points = createBoundary(parametrizations[i])
-        # println(boundary_points)
+        boundary_points = Vector{Tuple{Float64, Float64}}()
+        for func in parametrizations[i]
+            points = createBoundary(func)
+            append!(boundary_points, points)
+        end
         push!(bndry_mesh_points, boundary_points)
+        # println(boundary_points)
+        println("Boundary ", i, " Length: ", length(bndry_mesh_points[i]))
+        
         if i == 1
             push!(bndry_mesh_orientations, 1)
         else
@@ -624,7 +701,9 @@ function initializeMeshVariables(parametrizations::Vector{Function}, forcing_fun
     end
 end
 
-function createCombinedMesh(forest, surface_tag)
+function createQuadtreeMesh(forest)
+    gmsh.clear()
+    surface_tag = gmsh.model.addDiscreteEntity(2)
     element_type = 3
     numQuads = 0
     node_coords = []
@@ -643,6 +722,15 @@ function createCombinedMesh(forest, surface_tag)
 
     gmsh.model.mesh.addNodes(2, surface_tag, node_tags, node_coords)
     gmsh.model.mesh.addElementsByType(surface_tag, element_type, element_tags, node_tags)
+
+    gmsh.model.occ.synchronize()
+    gmsh.model.mesh.removeDuplicateNodes()
+    gmsh.model.mesh.generate(2)
+    msh = Inti.import_mesh(; dim = 2)
+
+    # showMesh(msh)
+
+    return msh
 end
 
 function getQuadFromPoint(tree::P4estTypes.Tree, point::Tuple{Float64, Float64})::P4estTypes.QuadrantWrapper
@@ -654,85 +742,132 @@ function getQuadFromPoint(tree::P4estTypes.Tree, point::Tuple{Float64, Float64})
     end
 end
 
-function createQuadtreeMesh(parametrizations::Vector{Function}, forcing_func::Function)
+function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_func::Function)
     # Creates the meshes describing the boundary region and the quadtree
     # important note: the first function in parametrizations is assumed to be the boundary, the others are assumed to be holes
-    
+    gmsh.initialize()
     gmsh.option.setNumber("General.Verbosity", 3)
+    Inti.clear_entities!()
+    println("Creating Quadtree")
 
     initializeMeshVariables(parametrizations, forcing_func)
+    println("Initialized Mesh Variables")
+
+    # println(bndry_mesh_points)
     
     forest = createQuadtree()
+    println("Created Quadtree")
+    # point = (0.10795, -0.907795)
+    # point = (-0.21563770872503343, 0.9951847266721969)
+    # quad = getQuadFromPoint(forest[1], point)
+    # GEO, DOM = get_GEO_DOM(quad)
+    # println(quad)
+    # println(GEO)
+    # println(DOM)
+    # showGeoQuadtreeMesh(forest)
+    # error("stop")
 
-    # println(length(bndry_mesh_points[2]))
-    # println(bndry_mesh_points[2])
+    
+
+    quad_mesh = createQuadtreeMesh(forest)
+    println("Meshed Quadtree")
+
+    # showMesh(quad_mesh)
     
     internalBoundaryPoints = getInternalBoundaryPoints(forest[1])
+    println("Created Internal Boundary")
 
-    gmsh.model.add("BoundaryRegions")
+    boundary_strip_meshes = createBoundaryStripMeshes(bndry_mesh_points, internalBoundaryPoints, parametrizations)
+    println("Meshed Boundary Strips")
 
-    boundary_linetags, internal_linetags, surface_tags = createMeshWithInternalBoundary(bndry_mesh_points, internalBoundaryPoints, parametrizations)
     
-    gmsh.model.occ.synchronize()
-    for tag in internal_linetags
-        gmsh.model.mesh.setTransfiniteCurve(tag, 2)
-    end
-    gmsh.model.mesh.removeDuplicateNodes()
-    gmsh.model.mesh.generate(2)
 
-    for i in 1:num_boundaries
-        boundary_str = string("Boundary ", i)
-        gmsh.model.addPhysicalGroup(2, [surface_tags[i]], -1, boundary_str)
-        gmsh.model.addPhysicalGroup(1, [boundary_linetags[i]], -1, boundary_str)
-    end
+    meshes = [quad_mesh, boundary_strip_meshes...]
 
-    surface_tag = gmsh.model.addDiscreteEntity(2, -1, internal_linetags)
-
-    createCombinedMesh(forest, surface_tag)
-    
-    gmsh.model.geo.synchronize()
-
-    gmsh.model.addPhysicalGroup(2, [surface_tag], -1, "Quadtree")
-    
-    gmsh.model.mesh.removeDuplicateNodes()
-    
-    gmsh.write("combined.msh")
-    
-    Inti.clear_entities!()
-    combined_msh = Inti.import_mesh(; dim = 2)
-
-    showGeoQuadtreeMesh(combined_msh, forest)
+    # showGeoQuadtreeMesh(meshes, forest)
 
     gmsh.clear()
-    
     gmsh.finalize()
 
-    return combined_msh
+    return meshes
 end
 
-function integrate(func, quadrature, mesh, order, r0)
-    triangle_type = Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, SVector{2, Float64}}
-    quad_type = Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, SVector{2, Float64}}
+# maybe have two functions? one for domain integrals, one for boundary integrals
+
+function calculateIntegrals(meshes, r0; dom_func=nothing, bndry_func=nothing, dom_order=4, bndry_order=6)
+    # calculates based on specified functions; if a dom_func is given, calculate domain integral. If a bndry_func is given, calculate boundary integral.
+    # first do quadtree mesh
+    dom_int = nothing
+    bndry_int = nothing
+    if !isnothing(dom_func)
+        dom_int = 0
+        for (i, mesh) in enumerate(meshes)
+            domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+            domain_mesh = Inti.view(mesh, domain)
+            domain_quadrature = Inti.Quadrature(domain_mesh; qorder = dom_order)
+            if i == 1
+                dom_int += integrate_quads(dom_func, domain_quadrature, mesh, dom_order, r0)
+            else
+                dom_int += Inti.integrate(dom_func, domain_quadrature)
+            end
+        end
+    end
+    if !isnothing(bndry_func)
+        bndry_int = 0
+        i = 1
+        for (i, mesh) in enumerate(meshes[2:end])
+            boundary = get_boundary(mesh)
+            boundary_mesh = Inti.view(mesh, boundary)
+            boundary_quadrature = Inti.Quadrature(boundary_mesh; qorder = bndry_order)
+            # check this. based on orientation of boundary quadrature points, assuming now that it comes from bndry_mesh but could be wrong
+            bndry_int += Inti.integrate(bndry_func, boundary_quadrature)
+        end
+    end
+    if isnothing(dom_int) && isnothing(bndry_int)
+        error("No input functions!")
+    elseif isnothing(dom_int) && !isnothing(bndry_int)
+        return bndry_int
+    elseif !isnothing(dom_int) && isnothing(bndry_int)
+        return dom_int
+    else
+        return dom_int, bndry_int
+    end
+end
+
+function integrate_quads(func, quadrature, mesh, order, r0)
     sum = 0
     # hard coding order 17 point counts in here temporarily, will change later
-    triangle_count = Inti.TRIANGLE_VR_ORDER_TO_NPTS[order]
     quad_count = 81
-    # now separate the quadrature points
-    num_triangle_quadrature_points = length(Inti.elements(mesh, triangle_type))*triangle_count
-    # assuming that triangle points come before quad points always. could be totally wrong here
-    triangle_quadrature_points = quadrature[1:num_triangle_quadrature_points]
-    quad_quadrature_points = quadrature[num_triangle_quadrature_points+1:end]
-    for q in triangle_quadrature_points
+    # now separate quadrature points into lists based on distance from r0
+    singular_points, near_singular_points, intermediate_points, far_points = [], [], [], []
+
+    # temporary values. dont know how to get them
+    singular_threshold = 0.05
+    near_singular_threshold = 0.1
+    intermediate_threshold = 0.15
+
+    for q in quadrature
+        dist = distance(q.coords, r0)
+        if dist < singular_threshold
+            push!(singular_points, q)
+        elseif dist < near_singular_threshold
+            push!(near_singular_points, q)
+        elseif dist < intermediate_threshold
+            push!(intermediate_points, q)
+        else
+            push!(far_points, q)
+        end
+    end
+    for q in singular_points
         sum += func(q) * q.weight
     end
-    # separate into separate loops based on distance
-    for q in quad_quadrature_points
-        # integrate based on distance from singularity
-        dist = distance(q.coords, r0)
-        # if dist < threshold, integrate one way (singular quad)
-        # elseif dist < threshold2, integrate another way (near-singular quad)
-        # elseif dist < threshold3, integrate another way (intermediate distance quads)
-        # else, integrate a final way (far distance quads)
+    for q in near_singular_points
+        sum += func(q) * q.weight
+    end
+    for q in intermediate_points
+        sum += func(q) * q.weight
+    end
+    for q in far_points
         sum += func(q) * q.weight
     end
     return sum
