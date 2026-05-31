@@ -1,15 +1,12 @@
-# a bunch of functions that create a variety of meshes for testing
-using Inti, Meshes, CairoMakie
-using Gmsh
-
 order = 1
 
 function distance(a, b)
     return sqrt((a[1] - b[1])^2 + (a[2] - b[2])^2)
 end
 
-function showMesh(msh; showBoundary = true)
+function showMesh(msh)
     println("Showing mesh!!!")
+
     Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
     Ω_msh = @views msh[Ω]
     fig = viz(
@@ -17,15 +14,40 @@ function showMesh(msh; showBoundary = true)
         segmentsize = 1,
         showsegments = true,
         axis = (aspect = DataAspect(),),
-        figure = (; size = (500, 400)),
+        figure = (; size = (400, 400)),
     )
-    if showBoundary
-        Γ = Inti.external_boundary(Ω)
+    Γ = get_boundary(msh)
+    if length(keys(Γ)) > 0 # boundary exists
         Γ_msh = @views msh[Γ]
         viz!(Γ_msh; color = :red, segmentsize = 1)
     end
     display(fig)
 end
+
+function showMeshes(meshes)
+    println("Showing combined mesh!!!")
+    quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, meshes[1])
+    quadtree_mesh = view(meshes[1], quadtree_dom)
+    fig = viz(
+        quadtree_mesh;
+        segmentsize = 1,
+        showsegments = true,
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (400, 400)),
+    )
+    for mesh in meshes[2:end]
+        strip_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+        strip_boundary = get_boundary(mesh)
+
+        strip_dom_mesh = view(mesh, strip_dom)
+        strip_boundary_mesh = view(mesh, strip_boundary)
+
+        viz!(strip_dom_mesh; showsegments = true)
+        viz!(strip_boundary_mesh; color = :red, segmentsize = 1)
+    end
+    display(fig)
+end
+
 
 function showMeshWithQuadrature(msh, quad)
     println("Showing mesh!!!")
@@ -47,8 +69,8 @@ function showMeshWithQuadrature(msh, quad)
 end
 
 function showEdgeList(edges)
+    println("Showing edge list")
     line1 = Meshes.Segment(Meshes.Point(edges[1][1][1], edges[1][1][2]), Meshes.Point(edges[1][2][1], edges[1][2][2]))
-    println(line1)
     fig = viz(
         line1;
         color = :red,
@@ -123,4 +145,8 @@ function createMesh(meshsize; outside_curve = [], holes = [])
     mesh = Inti.import_mesh(; dim = 2)
     gmsh.finalize()
     return mesh
+end
+
+function get_boundary(mesh)
+    return Inti.Domain((e) -> Inti.geometric_dimension(e) == 1 && "Boundary" in Inti.labels(e), mesh) 
 end

@@ -7,32 +7,20 @@ function test_simple_quadtree_mesh_area()
 
     gmsh.initialize()
     parametrizations::Vector{Function} = [(x) -> (cos(x*2*pi), sin(x*2*pi))]
-    quadtree_mesh = createQuadtreeMesh(parametrizations, forcing_function)
+    meshes = createQuadtreeMesh(parametrizations, forcing_function)
 
-    # parametrization_dict = Dict{Inti.EntityKey, Function}()
-    # parametrization = (x) -> [cos(x*2*pi), sin(x*2*pi)]
-    # for entity in Inti.entities(quadtree_mesh)
-    #     entity.dim == 2 || continue
-    #     l = Inti.labels(entity)
-    #     if "Boundary 1" in l
-    #         parametrization_dict[entity] = parametrization
-    #     end
-    # end
-
-    
-    # curved_mesh = Inti.curve_mesh(quadtree_mesh, parametrization_dict, 6)
-
-    dom = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, quadtree_mesh)
-    dom_mesh = Inti.view(quadtree_mesh, dom)
-    dom_quad = Inti.Quadrature(dom_mesh; qorder = 4)
-
-    showMesh(quadtree_mesh)
+    showMeshes(meshes)
     
     test_function = (q) -> forcing_function((q.coords[1], q.coords[2]))
 
-    result = Inti.integrate(test_function, dom_quad)
+    r0 = (10, 10) # far off point
+    domain_integral = calculateIntegrals(
+        meshes, r0; 
+        dom_func = test_function,
+        dom_order = 4,
+    )
     
-    @test result ≈ pi atol=1e-15
+    @test domain_integral ≈ pi atol=1e-15
 end
 
 function test_simple_quadtree_mesh_zero()
