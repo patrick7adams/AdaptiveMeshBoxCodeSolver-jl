@@ -19,5 +19,13 @@ Meshes = "eacbb407-ea5a-433e-ab97-5258b1ca43fa"
 P4estTypes = "f636fe8e-398d-42a9-9d15-dd2c0670d30f"
 PolygonAlgorithms = "32a0d02f-32d9-4438-b5ed-3a2932b48f96"
 Polynomials = "f27b6e38-b328-58d1-80ce-0feddd5e7a45"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
+TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
+
+[compat]
+Revise = "3.14.4"
+TestItemRunner = "1.1.5"
+TestItems = "1.0.0"

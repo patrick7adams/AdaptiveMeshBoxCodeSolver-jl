@@ -3,3 +3,5 @@ flake.lock
 *.txt
 .vscode
 .direnv
+*.cov
+.envrc
