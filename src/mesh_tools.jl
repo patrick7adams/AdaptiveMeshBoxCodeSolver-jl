@@ -1,4 +1,5 @@
 order = 1
+greens_fn = (r, x) -> 1/(2pi) * log(AdaptiveMeshSolver.distance(x, r))
 
 function distance(a, b)
     return sqrt((a[1] - b[1])^2 + (a[2] - b[2])^2)
@@ -33,7 +34,7 @@ function showMeshes(meshes)
         segmentsize = 1,
         showsegments = true,
         axis = (aspect = DataAspect(),),
-        figure = (; size = (400, 400)),
+        figure = (; size = (1000, 1000)),
     )
     for mesh in meshes[2:end]
         strip_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)

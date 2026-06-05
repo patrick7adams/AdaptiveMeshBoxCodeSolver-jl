@@ -63,6 +63,8 @@ using TestItems
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
             meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
 
+            AdaptiveMeshSolver.showMeshes(meshes)
+
             println("Done creating meshes!")
             domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
                 meshes, r0; 
