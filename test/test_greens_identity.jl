@@ -28,9 +28,8 @@ using TestItems
                 dom_order = 4,
                 bndry_order = 6
             )
-
+            println(boundary_integral)
             calculated_u_val = abs(domain_integral - boundary_integral)
-
             @test 0.0 ≈ calculated_u_val atol=1e-13
         end
     end
@@ -74,6 +73,8 @@ using TestItems
                 bndry_order = 6
             )
             println("Done integrating!")
+            println(boundary_integral)
+            println()
             calculated_u_val = abs(domain_integral - boundary_integral)
 
             @test 0.0 ≈ calculated_u_val atol=1e-13

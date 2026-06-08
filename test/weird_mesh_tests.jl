@@ -123,8 +123,8 @@ using TestItems
             bndry_order = 12
         )
 
-        # println(domain_integral)
-        # println(boundary_integral)
+        println(domain_integral)
+        println(boundary_integral)
 
         calculated_u_val = domain_integral - boundary_integral
 
@@ -155,7 +155,7 @@ using TestItems
 
         parametrizations::Vector{Vector{Function}} = [[(x) -> (1.5*cos(x*2*pi), 1.0*sin(x*2*pi))]]
         meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
-        # showMeshes(meshes)
+        AdaptiveMeshSolver.showMeshes(meshes)
         domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
             meshes, r0; 
             dom_func = domain_function,
@@ -205,8 +205,8 @@ using TestItems
             bndry_order = 12
         )
 
-        # println(domain_integral)
-        # println(boundary_integral)
+        println(domain_integral)
+        println(boundary_integral)
 
         calculated_u_val = domain_integral - boundary_integral
 
@@ -237,9 +237,9 @@ using TestItems
 
         parametrizations::Vector{Vector{Function}} = [
             [(x) -> (3.0*cos(x*2*pi), 1.0*sin(x*2*pi))],
-            [(x) -> (0.1*cos(-x*2*pi)+0.4, 0.1*sin(-x*2*pi))]]
+            [(x) -> (0.15*cos(-x*2*pi)+0.4, 0.15*sin(-x*2*pi))]]
         meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
-        # showMeshes(meshes)
+        AdaptiveMeshSolver.showMeshes(meshes)
         domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
             meshes, r0; 
             dom_func = domain_function,

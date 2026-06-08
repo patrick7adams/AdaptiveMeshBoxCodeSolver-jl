@@ -14,15 +14,14 @@ using TestItems
             forcing(x) = x[1]^2 / 4 + x[2]^2 / 4
             density(x) = 1.0 # laplacian of forcing
             target_points = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (1.5, 0.0)]
-            op = Inti.Laplace(; dim = 2)
 
             # now define meshes
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
-            forest, meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, density)
+            meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, density)
 
             # now compute volume potentials
-            quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
-            potentials = AdaptiveMeshSolver.calculateVolumePotential(forest[1], quadratures, density, target_points, op)
+            # quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
+            potentials = AdaptiveMeshSolver.calculateVolumePotential(meshes, density, target_points)
             println(potentials)
             error("hi")
         end

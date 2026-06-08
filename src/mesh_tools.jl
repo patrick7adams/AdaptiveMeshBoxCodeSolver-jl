@@ -69,9 +69,9 @@ function showMeshWithQuadrature(msh, quad)
     display(fig)
 end
 
-function showEdgeList(edges)
-    println("Showing edge list")
-    line1 = Meshes.Segment(Meshes.Point(edges[1][1][1], edges[1][1][2]), Meshes.Point(edges[1][2][1], edges[1][2][2]))
+function showEdgeList(points::Vector{Tuple{Float64, Float64}})
+    println("Showing edge vector")
+    line1 = Meshes.Segment(Meshes.Point(points[1][1], points[1][2]), Meshes.Point(points[2][1], points[2][2]))
     fig = viz(
         line1;
         color = :red,
@@ -80,10 +80,30 @@ function showEdgeList(edges)
         axis = (aspect = DataAspect(),),
         figure = (; size = (500, 400)),
     )
-    for edge in edges[2:end]
+    for i in 2:length(points)-1
+        line = Meshes.Segment(Meshes.Point(points[i][1], points[i][2]), Meshes.Point(points[i+1][1], points[i+1][2]))
+        # println(line)
+        viz!(line; color = :red, segmentsize = 1, showpoints = true, pointsize = 6)
+    end
+    display(fig)
+end
+
+function showEdgeList(edges::Set{Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}})
+    println("Showing edge set")
+    first_edge = first(edges)
+    line1 = Meshes.Segment(Meshes.Point(first_edge[1][1], first_edge[1][2]), Meshes.Point(first_edge[2][1], first_edge[2][2]))
+    fig = viz(
+        line1;
+        color = :red,
+        segmentsize = 1,
+        showsegments = true,
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (500, 400)),
+    )
+    for edge in edges
         line = Meshes.Segment(Meshes.Point(edge[1][1], edge[1][2]), Meshes.Point(edge[2][1], edge[2][2]))
         # println(line)
-        viz!(line; color = :red, segmentsize = 1)
+        viz!(line; color = :red, segmentsize = 1, showpoints = true, pointsize = 6)
     end
     display(fig)
 end
