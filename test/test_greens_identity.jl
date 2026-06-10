@@ -3,6 +3,8 @@ using TestItems
 @testmodule Greens_Identity begin
     using Test
     using AdaptiveMeshSolver
+    using Inti
+    using StaticArrays
 
     function test_simple_quadtree_greens_theorem()
         @testset "Greens Theorem Area" begin
@@ -72,9 +74,6 @@ using TestItems
                 dom_order = 4,
                 bndry_order = 6
             )
-            println("Done integrating!")
-            println(boundary_integral)
-            println()
             calculated_u_val = abs(domain_integral - boundary_integral)
 
             @test 0.0 ≈ calculated_u_val atol=1e-13

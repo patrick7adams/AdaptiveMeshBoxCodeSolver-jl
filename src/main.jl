@@ -683,7 +683,7 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
     end
     surfaces = [[boundary_curves[1]]]
     linetags = []
-    println(boundary_associations)
+    # println(boundary_associations)
     for i in 1:length(boundary_associations)
         association = boundary_associations[i]
         internal_curve_loop, internal_linetags = createCurveLoop(internal_points[i])
@@ -711,7 +711,12 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curvature_size)
         gmsh.model.mesh.removeDuplicateNodes()
         gmsh.model.mesh.generate(2)
-        
+
+        _, node_coords, _ = gmsh.model.mesh.getNodes(1, boundary_splines[1], true, true)
+        new_points = [(node_coords[3*k+1], node_coords[3*k+2]) for k in 0:Int64(length(node_coords)/3)-1]
+        insert!(new_points, 1, popat!(new_points, length(new_points)-1))   
+        # println(new_points)
+    
         msh = Inti.import_mesh(; dim = 2)
 
         # showMesh(msh)
@@ -739,11 +744,13 @@ function get_circle_radius(p1::Tuple{Float64, Float64}, p2::Tuple{Float64, Float
     return e1_dist*e2_dist*e3_dist / (4*area)
 end
 
-function createSplines(parametrizations::Vector{Function}; num_points::Int64 = 64)::Vector{Int32}
+function createSplines(parametrizations::Vector{Function}; num_points::Int64 = 32)::Vector{Int32}
     first_point_tag = -1
     splines = Vector{Int32}()
     for (j, func) in enumerate(parametrizations)
         points = getBoundaryPoints(func, num_points)
+        println("-----")
+        println(points)
         point_tags = Vector{Int32}()
         for point in points
             # println(point)
@@ -761,7 +768,7 @@ function createSplines(parametrizations::Vector{Function}; num_points::Int64 = 6
             push!(point_tags, gmsh.model.occ.addPoint(func(1.0)..., 0.0))
         end
             # there are parametrizations that follow this one, should be connected in series
-            
+        # println(point_tags)
         spline = gmsh.model.occ.addSpline(point_tags)
         
         push!(splines, spline)
@@ -880,7 +887,7 @@ function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_
     # println(quad)
     # println(GEO)
     # println(DOM)
-    showGeoQuadtreeMesh(forest)
+    # showGeoQuadtreeMesh(forest)
     # error("stop")
 
     
@@ -1083,7 +1090,6 @@ function separateMesh(mesh, point)
     # showSeparatedMesh(mesh, singular_elements, near_singular_elements, culled_quadrature)
     return singular_elements, near_singular_elements, culled_quadrature
 end
-
 
 function calculateQuadVolumePotential(quad_mesh, u, target_points)
     # algorithm here:
