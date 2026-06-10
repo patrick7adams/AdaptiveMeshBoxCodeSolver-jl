@@ -25,6 +25,39 @@ function showMesh(msh)
     display(fig)
 end
 
+function showSeparatedMesh(msh, singular_elems, near_singular_elems, quad)
+    println("Showing Separated mesh!!!")
+
+    Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
+    Ω_msh = @views msh[Ω]
+    fig = viz(
+        Ω_msh;
+        segmentsize = 1,
+        showsegments = true,
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (400, 400)),
+    )
+    if length(near_singular_elems) > 0
+        near_singular_coords = []
+        for elem in near_singular_elems
+            append!(near_singular_coords, [(x[1], x[2]) for x in Inti.vertices(elem)])
+        end
+        near_singular_pointset = Meshes.PointSet(near_singular_coords)
+        viz!(near_singular_pointset; color = :green, pointsize = 6, showpoints = true)
+    end
+    if length(singular_elems) > 0
+        singular_coords = []
+        for elem in singular_elems
+            append!(singular_coords, [(x[1], x[2]) for x in Inti.vertices(elem)])
+        end
+        singular_pointset = Meshes.PointSet(singular_coords)
+        viz!(singular_pointset; color = :red, pointsize = 6, showpoints = true)
+    end
+    domain_quad_coords = Meshes.PointSet(map((q) -> Meshes.Point(q.coords...), quad))
+    viz!(domain_quad_coords; color = :blue, pointsize = 2)
+    display(fig)
+end
+
 function showMeshes(meshes)
     println("Showing combined mesh!!!")
     quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, meshes[1])
@@ -53,9 +86,7 @@ end
 function showMeshWithQuadrature(msh, quad)
     println("Showing mesh!!!")
     Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
-    Γ = Inti.boundary(Ω)
     Ω_msh = @views msh[Ω]
-    Γ_msh = @views msh[Γ]
     domain_quad_coords = Meshes.PointSet(map((q) -> Meshes.Point(q.coords...), quad))
     fig = viz(
         Ω_msh;
@@ -64,7 +95,6 @@ function showMeshWithQuadrature(msh, quad)
         axis = (aspect = DataAspect(),),
         figure = (; size = (500, 400)),
     )
-    viz!(Γ_msh; color = :red, segmentsize = 1)
     viz!(domain_quad_coords; color = :blue, pointsize = 2)
     display(fig)
 end

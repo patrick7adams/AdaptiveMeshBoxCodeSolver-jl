@@ -880,7 +880,7 @@ function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_
     # println(quad)
     # println(GEO)
     # println(DOM)
-    # showGeoQuadtreeMesh(forest)
+    showGeoQuadtreeMesh(forest)
     # error("stop")
 
     
@@ -1007,8 +1007,83 @@ function generatePoints(deg, u, x, bounds)
     # println(x_normal)
     # println(x_xdim)
     # println(x_ydim)
-    return [[u((xi, yi)) for xi in x_xdim] for yi in x_ydim]
+
+    return stack([[u((xi, yi)) for xi in x_xdim] for yi in x_ydim], dims=1)
 end
+
+function separateMesh(mesh, point)
+    function roundPoint(point, digits=8)
+        return (round(point[1], digits=digits), round(point[2], digits=digits))
+    end
+    # separates the mesh into:
+    # 1. a quadrature of the nonsingular points
+    # 2. a list of elements of the mesh for the singular / near-singular quads
+
+    # first get the singular elements
+    singular_elements = []
+    for elem in Inti.elements(mesh)
+        coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+        if (coords[1][1] <= point[1] && point[1] <= coords[3][1]) && (coords[1][2] <= point[2] && point[2] <= coords[3][2])
+            push!(singular_elements, elem)
+        end
+    end
+    near_singular_elements = []
+    if length(singular_elements) == 0
+        # just do it based on distance if element is not in the mesh
+        for elem in Inti.elements(mesh)
+            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+            dist = minimum([distance(coord, point) for coord in coords])
+            if dist < 0.25
+                push!(near_singular_elements, elem)
+            end
+        end
+    else
+        vertices = Set()
+        for elem in singular_elements
+            vertices = union(vertices, Set(roundPoint(x) for x in Inti.vertices(elem)))
+        end
+        num_neighbors = 1
+        for i in 1:num_neighbors
+            new_verts = Set()
+            for elem in Inti.elements(mesh)
+                coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+                num_inclusions = sum([roundPoint(x) in vertices ? 1 : 0 for x in coords])
+                if num_inclusions in [1,2,3] # touches but not inside vertices already
+                    push!(near_singular_elements, elem)
+                    push!(new_verts, [roundPoint(x) for x in Inti.vertices(elem)]...)
+                end
+            end
+            vertices = union(vertices, new_verts)
+        end
+    end
+    # NOW from the separated mesh we need to get the quadrature of the rest of the mesh
+    domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+    domain_mesh = Inti.view(mesh, domain)
+    quadrature = Inti.Quadrature(domain_mesh; qorder = 17)
+    n = length([x for x in Inti.elements(mesh)])
+    points_per_quad = Int64(length(quadrature) / n)
+    culled_quadrature = Vector{Inti.QuadratureNode}()
+    # println(n)
+    for i in 0:n-1
+        is_singular = false
+        # get some quadrature point
+
+        test_point = quadrature[Int64(floor((i+0.5)*points_per_quad))+1].coords
+        for elem in [singular_elements..., near_singular_elements...]
+            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+            if (coords[1][1] <= test_point[1] && test_point[1] <= coords[3][1]) && (coords[1][2] <= test_point[2] && test_point[2] <= coords[3][2])
+                is_singular = true
+                break
+            end
+        end
+        if !is_singular
+            append!(culled_quadrature, quadrature[i*points_per_quad+1:(i+1)*points_per_quad])
+        end
+    end
+    # showSeparatedMesh(mesh, singular_elements, near_singular_elements, culled_quadrature)
+    return singular_elements, near_singular_elements, culled_quadrature
+end
+
 
 function calculateQuadVolumePotential(quad_mesh, u, target_points)
     # algorithm here:
@@ -1018,10 +1093,11 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
 
     # do I want this to have the mesh as input or the quadtree? really the quadtree is the play I think, its a larger object but info can be used 
     # from it for optimization (maybe) and I can construct the quadratures individually
+    greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
     potentials = [0.0 for point in target_points]
-    deg = 5;
-    F_map = Dict{P4estTypes.QuadrantWrapper, Matrix{Float64}}()
-    L_map = Dict{Tuple{Float64, Float64}, Matrix{Float64}}()
+    deg = 10;
+    F_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Matrix{Float64}}()
+    L_map = Dict{Vector{Float64}, Matrix{Float64}}()
     # first set up legendre polynomials for singular evaluations
     P = ClassicalOrthogonalPolynomials.Legendre()
     
@@ -1034,57 +1110,60 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
     intermediate_threshold = 0.15
     # println(forest)
     # separate into four quadratures for singular, near, intermediate, and far points
+    quad_type = Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}
     for (i, point) in enumerate(target_points)
-        singular_quads = Vector{P4estTypes.QuadrantWrapper}()
-        near_quads = Vector{P4estTypes.QuadrantWrapper}()
-        intermed_quads = Vector{P4estTypes.QuadrantWrapper}()
-        far_quads = Vector{P4estTypes.QuadrantWrapper}()
-        for quad in tree
-            coords = QuadToCoords(quad)
-            dist = minimum(distance(coord, point) for coord in coords)
-            if dist < singular_threshold
-                push!(singular_quads, quad)
-            elseif dist < near_singular_threshold
-                push!(near_quads, quad)
-            elseif dist < intermediate_threshold
-                push!(intermed_quads, quad)
+        singular_quads, near_singular_quads, far_quadrature = separateMesh(quad_mesh, point)
+        for elem in [singular_quads..., near_singular_quads...]
+            # first create F
+            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+            bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
+            scaling_factor = ((coords[3][1]-coords[1][1])*(coords[3][2]-coords[1][2])) / 4.0
+            if haskey(F_map, elem)
+                F = F_map[elem]
             else
-                push!(far_quads, quad)
+                ux = generatePoints(deg, u, x, bounds)
+                tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
+                F = (tmp_F * ux)
+                F_map[elem] = F
             end
+            # now create L by first mapping point to the [[-1, 1], [-1, 1]] grid
+            x_len, y_len = coords[3][1] - coords[1][1], coords[3][2] - coords[1][2]
+            x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
+            mapped_target_point = [round(-1.0 + x_dist/x_len*2.0, digits=8), round(-1.0 + y_dist/y_len*2.0, digits=8)]
+            if haskey(L_map, mapped_target_point)
+                L = L_map[mapped_target_point]
+            else
+                L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(mapped_target_point), deg))
+                L_map[mapped_target_point] = L
+            end
+            potentials[i] += dot(F, L)*scaling_factor
         end
+        # now contributions from far quads. just use standard stuff here
+
+        # we need the quadrature on only the intermediate and the far quads. can be stupid about this for now, but should be smarter
+        
+        domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
+        # potentials[i] += Inti.integrate(domain_func, far_quadrature)
+        potentials[i] += sum(domain_func(q)*q.weight for q in far_quadrature)
     end
         # println(point)
-    for quad in singular_quads
-        if haskey(F_map, quad)
-            
-        else
-
-        end
-        coords = QuadToCoords(quad)
-        bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
-        F = generatePoints(deg, u, x, bounds)
-        println(typeof(ux))
-        C = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg)) * ux
-        N = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
-        potentials[i] += dot(N, C)
-    end
+    
         # do the same for near singular quads
-    for quad in intermed_quads
-        # get quadrature points for quad by generating grid in similar way to coords
-        # then do manual quadrature? two options: implement my own quadrature scheme here, or use the inti quadrature 
-    end
+    
     # for now, use the paper technique on singular and near quadratures
     # calculate normally for intermediate and far quadratures (use inti volume potential??? I could also just calculate manually lol)
+    return potentials
 end
 
 function calculateTriangleVolumePotential(mesh, density, target_points)
     quadrature = getDomainQuadrature(mesh, 17)
+    op = Inti.Laplace(; dim=2)
     volume_potential = Inti.volume_potential(; 
         op, 
         target = target_points, 
         source = quadrature,
         compression = (method = :none, ),
-        correction = (method = :none, ),
+        correction = (method = :none, ), # fix
     )
     laplacian_points = [density(q.coords) for q in quadrature]
     potentials = volume_potential * laplacian_points

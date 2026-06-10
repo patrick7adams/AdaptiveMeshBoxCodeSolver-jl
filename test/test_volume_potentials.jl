@@ -13,7 +13,7 @@ using TestItems
             # define function and target points
             forcing(x) = x[1]^2 / 4 + x[2]^2 / 4
             density(x) = 1.0 # laplacian of forcing
-            target_points = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (1.5, 0.0)]
+            target_points = [(0.0, 0.0), (0.5, 0.0), (0.75, 0.0), (1.5, 0.0)]
 
             # now define meshes
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
@@ -23,7 +23,6 @@ using TestItems
             # quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
             potentials = AdaptiveMeshSolver.calculateVolumePotential(meshes, density, target_points)
             println(potentials)
-            error("hi")
         end
     end
 
