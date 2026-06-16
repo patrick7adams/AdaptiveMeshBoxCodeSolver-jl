@@ -413,7 +413,7 @@ function getInternalBoundaryPoints(tree)
         for quad in tree
             GEO, DOM = get_GEO_DOM(quad)
             if (GEO == regular && boundary in DOM || GEO == cut && boundary in DOM)
-            # if GEO == regular && length(boundary) > 0 || GEO == cut
+            # if (GEO == regular && length(boundary) > 0) || (GEO == cut && length(boundary) > 0)
                 coords = QuadToCoords(quad)
                 short_edges, long_edges = getPossibleBoundaryEdges(coords)
                 skip_tag = false
@@ -430,6 +430,7 @@ function getInternalBoundaryPoints(tree)
                 end
             end
         end
+        # showEdgeList(good_edges)
         # final pass, reconnect large edges. should be very quick
         for quad in tree
             GEO, DOM = get_GEO_DOM(quad)
@@ -454,12 +455,9 @@ function getInternalBoundaryPoints(tree)
         while length(good_edges) > 0
             og_len = length(good_edges)
             k = 0
-            # println(getFirstPoints(good_edges))
             edge_connections = [getFirstPoints(good_edges)...]
             if Tuple(edge_connections) in good_edges
-                # println(length(good_edges))
                 pop!(good_edges, Tuple(edge_connections))
-                # println(length(good_edges))
             end
 
             found_edge = true
@@ -497,7 +495,7 @@ function getInternalBoundaryPoints(tree)
         # suppose hole close to quadtree. Then we have two edge sets, one associated with each boundary, that should be combined into one.
         found_before = false
         for association_set in final_edge_list_associations
-            if i in association_set && length(association_set) > 1
+            if edge_list_associations[i] in association_set && length(association_set) > 1
                 found_before = true
             end
         end
@@ -505,14 +503,33 @@ function getInternalBoundaryPoints(tree)
             continue
         end
         edge_list_association = [i]
-        for (j, other_edge_set) in enumerate(edge_list)
-            if distance(edge_set[end], other_edge_set[1]) <= 1e-10
-                push!(edge_list_association, edge_list_associations[j])
-                append!(edge_set, other_edge_set)
-                if distance(edge_set[1], edge_set[end]) <= 1e-10
+        j = 1
+        repeat = true
+        count = 0
+        while repeat && count < length(edge_list)
+            repeat = false
+            for (j, other_edge_set) in enumerate(edge_list)
+                break_k = false
+                for k in 1:5
+                    # check first few elements of the next one for distance then cut off there
+                    if distance(edge_set[end], other_edge_set[k]) <= 1e-10
+                        if !(edge_list_associations[j] in edge_list_association)
+                            push!(edge_list_association, edge_list_associations[j])
+                        end
+                        append!(edge_set, other_edge_set[k+1:end])
+                        repeat = true
+                        if distance(edge_set[1], edge_set[end]) <= 1e-10
+                            repeat = false
+                        end
+                        break_k = true
+                        break
+                    end
+                end
+                if break_k
                     break
                 end
             end
+            count += 1
         end
         push!(final_edge_list_associations, edge_list_association)
         push!(final_edge_list, edge_set[1:end-1])
@@ -520,6 +537,16 @@ function getInternalBoundaryPoints(tree)
     # for edge_set in final_edge_list
     #     showEdgeList(edge_set)
     # end
+    # println(final_edge_list)
+    # for i in 1:length(final_edge_list[1])
+    #     if distance(final_edge_list[1][i], final_edge_list[1][mod1(i+1, length(final_edge_list[1]))]) < 1e-8
+    #         println(final_edge_list[1][i])
+    #         println(final_edge_list[1][mod1(i+1, length(final_edge_list[1]))])
+    #         println(i)
+    #     end
+    # end
+    # println(final_edge_list_associations)
+    # error("hi")
     return final_edge_list_associations, final_edge_list
 end
 
@@ -671,37 +698,12 @@ function classify_boundary(points, num_points)
 end
 
 function createBoundaryStripMeshes(boundary_associations, internal_points, parametrizations)
-    meshes = []
-    gmsh.clear()
-    boundary_curves = []
-    boundary_splines = []
-    for i in 1:num_boundaries
+    function getCurve(i)
         splines = createSplines(parametrizations[i])
-        boundary_curve_loop = gmsh.model.occ.addCurveLoop(splines)
-        append!(boundary_splines, splines)
-        push!(boundary_curves, boundary_curve_loop)
+        return gmsh.model.occ.addCurveLoop(splines), splines
     end
-    surfaces = [[boundary_curves[1]]]
-    linetags = []
-    # println(boundary_associations)
-    for i in 1:length(boundary_associations)
-        association = boundary_associations[i]
-        internal_curve_loop, internal_linetags = createCurveLoop(internal_points[i])
-        append!(linetags, internal_linetags)
-        if 1 in association # main boundary
-            push!(surfaces[1], internal_curve_loop)
-            for j in association
-                if !(boundary_curves[j] in surfaces[1])
-                    push!(surfaces[1], boundary_curves[j])
-                end
-            end
-        else
-            # then the internal curve must be outside
-            boundaries = [boundary_curves[j] for j in association]
-            push!(surfaces, [internal_curve_loop, boundaries...])
-        end
-    end
-    for surf in surfaces
+
+    function generateMesh(surf, boundary_splines, linetags)
         gmsh.model.occ.addPlaneSurface(surf)
         gmsh.model.occ.synchronize()
         for tag in linetags
@@ -710,19 +712,61 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
         gmsh.model.addPhysicalGroup(1, boundary_splines, -1, "Boundary")
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curvature_size)
         gmsh.model.mesh.removeDuplicateNodes()
+        # println("generating scary mesh")
         gmsh.model.mesh.generate(2)
-
-        _, node_coords, _ = gmsh.model.mesh.getNodes(1, boundary_splines[1], true, true)
-        new_points = [(node_coords[3*k+1], node_coords[3*k+2]) for k in 0:Int64(length(node_coords)/3)-1]
-        insert!(new_points, 1, popat!(new_points, length(new_points)-1))   
-        # println(new_points)
-    
-        msh = Inti.import_mesh(; dim = 2)
-
-        # showMesh(msh)
-        
-        push!(meshes, msh)
+        # println("done")
     end
+
+    meshes = []
+    gmsh.clear()
+    boundary_splines = Vector{Int32}()
+    surfaces = Vector{Int32}()
+    linetags = Vector{Int32}()
+
+    external_associations = [association for association in boundary_associations if 1 in association]
+    internal_associations = [association for association in boundary_associations if !(1 in association)]
+    
+    boundary_curve, splines = getCurve(1)
+    push!(surfaces, boundary_curve)
+    push!(boundary_splines, splines...)
+
+    for (i, association) in enumerate(external_associations)
+        internal_curve_loop, internal_linetags = createCurveLoop(internal_points[i])
+        append!(linetags, internal_linetags)
+        push!(surfaces, internal_curve_loop)
+        for j in association
+            j != 1 || continue
+            curve, splines = getCurve(j)
+            push!(surfaces, curve)
+            push!(boundary_splines, splines...)
+        end
+    end
+    generateMesh(surfaces, boundary_splines, linetags)
+    msh = Inti.import_mesh(; dim = 2)
+    push!(meshes, msh)
+    gmsh.clear()
+    for (i, association) in enumerate(internal_associations)
+        boundary_splines = Vector{Int32}()
+        surfaces = Vector{Int32}()
+        linetags = Vector{Int32}()
+        
+        internal_curve_loop, internal_linetags = createCurveLoop(internal_points[i+length(external_associations)])
+        append!(linetags, internal_linetags)
+
+        for j in association
+            curve, splines = getCurve(j)
+            push!(surfaces, curve)
+            push!(boundary_splines, splines...)
+        end
+
+        generateMesh([internal_curve_loop, surfaces...], boundary_splines, linetags)
+        msh = Inti.import_mesh(; dim = 2)
+        push!(meshes, msh)
+        gmsh.clear()
+    end
+    # for mesh in meshes
+    #     showMesh(mesh)
+    # end
 
     return meshes
 end
@@ -744,13 +788,13 @@ function get_circle_radius(p1::Tuple{Float64, Float64}, p2::Tuple{Float64, Float
     return e1_dist*e2_dist*e3_dist / (4*area)
 end
 
-function createSplines(parametrizations::Vector{Function}; num_points::Int64 = 32)::Vector{Int32}
+function createSplines(parametrizations::Vector{Function}; num_points::Int64 = 16)::Vector{Int32}
     first_point_tag = -1
     splines = Vector{Int32}()
     for (j, func) in enumerate(parametrizations)
         points = getBoundaryPoints(func, num_points)
-        println("-----")
-        println(points)
+        # println("-----")
+        # println(points)
         point_tags = Vector{Int32}()
         for point in points
             # println(point)
@@ -928,28 +972,23 @@ function getBoundaryQuadrature(mesh, order)
     return boundary_quadrature
 end
 
-function calculateIntegrals(meshes, r0; dom_func=nothing, bndry_func=nothing, dom_order=4, bndry_order=6)
+function calculateIntegrals(meshes; dom_func=nothing, bndry_func=nothing, dom_order=4, bndry_order=6)
     # calculates based on specified functions; if a dom_func is given, calculate domain integral. If a bndry_func is given, calculate boundary integral.
     # first do quadtree mesh
     dom_int = nothing
     bndry_int = nothing
     if !isnothing(dom_func)
+        println("dom integrals")
         dom_int = 0
         for (i, mesh) in enumerate(meshes)
             domain_quadrature = getDomainQuadrature(mesh, dom_order)
-            if i == 1
-                dom_int += integrate_quads(dom_func, domain_quadrature, mesh, dom_order, r0)
-            else
-                dom_int += Inti.integrate(dom_func, domain_quadrature)
-            end
+            dom_int += Inti.integrate(dom_func, domain_quadrature)
         end
     end
     if !isnothing(bndry_func)
         bndry_int = 0
-        i = 1
         for (i, mesh) in enumerate(meshes[2:end])
             boundary_quadrature = getBoundaryQuadrature(mesh, bndry_order)
-            # check this. based on orientation of boundary quadrature points, assuming now that it comes from bndry_mesh but could be wrong
             bndry_int += Inti.integrate(bndry_func, boundary_quadrature)
         end
     end
@@ -962,45 +1001,6 @@ function calculateIntegrals(meshes, r0; dom_func=nothing, bndry_func=nothing, do
     else
         return dom_int, bndry_int
     end
-end
-
-function integrate_quads(func, quadrature, mesh, order, r0)
-    sum = 0
-    # hard coding order 17 point counts in here temporarily, will change later
-    quad_count = 81
-    # now separate quadrature points into lists based on distance from r0
-    singular_points, near_singular_points, intermediate_points, far_points = [], [], [], []
-
-    # temporary values. dont know how to get them
-    singular_threshold = 0.05
-    near_singular_threshold = 0.1
-    intermediate_threshold = 0.15
-
-    for q in quadrature
-        dist = distance(q.coords, r0)
-        if dist < singular_threshold
-            push!(singular_points, q)
-        elseif dist < near_singular_threshold
-            push!(near_singular_points, q)
-        elseif dist < intermediate_threshold
-            push!(intermediate_points, q)
-        else
-            push!(far_points, q)
-        end
-    end
-    for q in singular_points
-        sum += func(q) * q.weight
-    end
-    for q in near_singular_points
-        sum += func(q) * q.weight
-    end
-    for q in intermediate_points
-        sum += func(q) * q.weight
-    end
-    for q in far_points
-        sum += func(q) * q.weight
-    end
-    return sum
 end
 
 function generatePoints(deg, u, x, bounds)
@@ -1018,7 +1018,7 @@ function generatePoints(deg, u, x, bounds)
     return stack([[u((xi, yi)) for xi in x_xdim] for yi in x_ydim], dims=1)
 end
 
-function separateMesh(mesh, point)
+function separateMesh(mesh, point, num_neighbors)
     function roundPoint(point, digits=8)
         return (round(point[1], digits=digits), round(point[2], digits=digits))
     end
@@ -1049,7 +1049,6 @@ function separateMesh(mesh, point)
         for elem in singular_elements
             vertices = union(vertices, Set(roundPoint(x) for x in Inti.vertices(elem)))
         end
-        num_neighbors = 1
         for i in 1:num_neighbors
             new_verts = Set()
             for elem in Inti.elements(mesh)
@@ -1091,6 +1090,34 @@ function separateMesh(mesh, point)
     return singular_elements, near_singular_elements, culled_quadrature
 end
 
+function getCorrectionMap(quad_mesh, order, u)
+    Correction_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Float64}()
+
+    quadrature = Inti.Quadrature(quad_mesh; qorder=order)
+    num_points_per_quad = Int64(ceil((order + 1) / 2))^2
+    num_quads = Int64(length(quadrature) / num_points_per_quad)
+    mid_point_coord = Int64(ceil(num_points_per_quad/2))
+    for quad in Inti.elements(quad_mesh)
+        coords = [(x[1], x[2]) for x in Inti.vertices(quad)]
+        h = coords[3][1] - coords[1][1]
+        start_idx = -1
+        for i in 1:num_quads
+            point = quadrature[(i-1)*num_points_per_quad + mid_point_coord].coords
+            if (coords[1][1] <= point[1] && point[1] <= coords[3][1]) && (coords[1][2] <= point[2] && point[2] <= coords[3][2])
+                start_idx = (i-1)*num_points_per_quad
+                break
+            end
+        end
+        integral = 0
+        for quad_point in quadrature[start_idx+1:start_idx+num_points_per_quad]
+            integral += u(quad_point.coords) * quad_point.weight 
+        end
+        correction_term = integral
+        Correction_map[quad] = correction_term
+    end
+    return Correction_map
+end
+
 function calculateQuadVolumePotential(quad_mesh, u, target_points)
     # algorithm here:
     #  1 - perform algorithm setup steps (create C matrix)
@@ -1101,29 +1128,30 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
     # from it for optimization (maybe) and I can construct the quadratures individually
     greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
     potentials = [0.0 for point in target_points]
-    deg = 10;
+    deg = 20;
     F_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Matrix{Float64}}()
     L_map = Dict{Vector{Float64}, Matrix{Float64}}()
+    Correction_map = getCorrectionMap(quad_mesh, 10, u)
     # first set up legendre polynomials for singular evaluations
     P = ClassicalOrthogonalPolynomials.Legendre()
     
     x = ClassicalOrthogonalPolynomials.grid(P, deg)
-    # ux = u.((x, x'))
-    # C = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg)) * ux
+    # 3 - 4 per (2)
+    # 9 - 25 per (5)
+    # 10 - 36 per (6)
+    # 11 - 36 per (6)
+    # 12 - 49 per (7)
+    order = 20
 
-    singular_threshold = 0.05
-    near_singular_threshold = 0.1
-    intermediate_threshold = 0.15
-    # println(forest)
-    # separate into four quadratures for singular, near, intermediate, and far points
     quad_type = Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}
     for (i, point) in enumerate(target_points)
-        singular_quads, near_singular_quads, far_quadrature = separateMesh(quad_mesh, point)
+        singular_quads, near_singular_quads, far_quadrature = separateMesh(quad_mesh, point, 1)
         for elem in [singular_quads..., near_singular_quads...]
             # first create F
             coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+            
             bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
-            scaling_factor = ((coords[3][1]-coords[1][1])*(coords[3][2]-coords[1][2])) / 4.0
+            h = coords[3][1] - coords[1][1]
             if haskey(F_map, elem)
                 F = F_map[elem]
             else
@@ -1133,23 +1161,32 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
                 F_map[elem] = F
             end
             # now create L by first mapping point to the [[-1, 1], [-1, 1]] grid
-            x_len, y_len = coords[3][1] - coords[1][1], coords[3][2] - coords[1][2]
             x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
-            mapped_target_point = [round(-1.0 + x_dist/x_len*2.0, digits=8), round(-1.0 + y_dist/y_len*2.0, digits=8)]
+            
+            mapped_target_point = [round(-1.0+2/h*x_dist, digits=12), round(-1.0+2/h*y_dist, digits=12)]
             if haskey(L_map, mapped_target_point)
                 L = L_map[mapped_target_point]
             else
                 L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(mapped_target_point), deg))
                 L_map[mapped_target_point] = L
             end
-            potentials[i] += dot(F, L)*scaling_factor
+            I = dot(F, L)
+            
+            term = I*h^2 / (8*pi) - log(2/h)/(2*pi)*Correction_map[elem]
+            potentials[i] += term
+            # if elem == near_singular_quads[1]
+            #     println(coords)
+            #     println(term)
+            #     # println(Correction_map[elem])
+            #     # println(point)
+            #     println(I)
+            #     println(mapped_target_point)
+            # end
         end
-        # now contributions from far quads. just use standard stuff here
-
-        # we need the quadrature on only the intermediate and the far quads. can be stupid about this for now, but should be smarter
-        
+        # okay so. no error in I, but error in term.
+        # now contributions from far quads. just use standard stuff here        
         domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
-        # potentials[i] += Inti.integrate(domain_func, far_quadrature)
+        # domain_func = (q) -> u(q.coords)
         potentials[i] += sum(domain_func(q)*q.weight for q in far_quadrature)
     end
         # println(point)
@@ -1161,28 +1198,73 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
     return potentials
 end
 
-function calculateTriangleVolumePotential(mesh, density, target_points)
+function calculateTriangleVolumePotential(mesh, density, target_points, multiplicative_terms)
     quadrature = getDomainQuadrature(mesh, 17)
     op = Inti.Laplace(; dim=2)
-    volume_potential = Inti.volume_potential(; 
+    inside_target_points = Vector{Tuple{Float64, Float64}}()
+    boundary_target_points = Vector{Tuple{Float64, Float64}}()
+    outside_target_points = Vector{Tuple{Float64, Float64}}()
+    inside_indices = Vector{Int64}()
+    boundary_indices = Vector{Int64}()
+    outside_indices = Vector{Int64}()
+    for (i, point) in enumerate(target_points)
+        if multiplicative_terms[i] == :on
+            push!(boundary_target_points, point)
+            push!(boundary_indices, i)
+        elseif multiplicative_terms[i] == :inside
+            push!(inside_target_points, point)
+            push!(inside_indices, i)
+        else
+            push!(outside_target_points, point)
+            push!(outside_indices, i)
+        end
+    end
+    inside_volume_potential = Inti.volume_potential(; 
         op, 
-        target = target_points, 
+        target = inside_target_points, 
         source = quadrature,
         compression = (method = :none, ),
-        correction = (method = :none, ), # fix
+        correction = (method = :dim, maxdist=Inf, target_location=:inside), 
+    )
+    boundary_volume_potential = Inti.volume_potential(; 
+        op, 
+        target = boundary_target_points, 
+        source = quadrature,
+        compression = (method = :none, ),
+        correction = (method = :dim, maxdist=Inf, target_location=:on), 
+    )
+    outside_volume_potential = Inti.volume_potential(; 
+        op, 
+        target = outside_target_points, 
+        source = quadrature,
+        compression = (method = :none, ),
+        correction = (method = :dim, maxdist=Inf, target_location=:outside), 
     )
     laplacian_points = [density(q.coords) for q in quadrature]
-    potentials = volume_potential * laplacian_points
+    inside_potentials = inside_volume_potential * laplacian_points
+    boundary_potentials = boundary_volume_potential * laplacian_points
+    outside_potentials = outside_volume_potential * laplacian_points
+    # now reconstruct potentials list
+    potentials = [0.0 for x in target_points]
+    for i in 1:length(inside_potentials)
+        potentials[inside_indices[i]] = -inside_potentials[i] 
+    end
+    for i in 1:length(boundary_potentials)
+        potentials[boundary_indices[i]] = -boundary_potentials[i] 
+    end
+    for i in 1:length(outside_potentials)
+        potentials[outside_indices[i]] = -outside_potentials[i] 
+    end
     return potentials
 end
 
-function calculateVolumePotential(meshes, u, target_points)
+function calculateVolumePotential(meshes, u, target_points, multiplicative_terms)
     # calculates the volume potential over the quadratures. Assumes that the first quadrature passed represents the quadtree.
     target_potentials = calculateQuadVolumePotential(meshes[1], u, target_points)
-    for mesh in meshes[2:end]
-        tmp_target_potentials = calculateTriangleVolumePotential(mesh, u, target_points)
-        for (i, potential) in enumerate(tmp_target_potentials)
-            target_potentials[i] += potential
+    for (i, mesh) in enumerate(meshes[2:end])
+        tmp_target_potentials = calculateTriangleVolumePotential(mesh, u, target_points, multiplicative_terms[i+1])
+        for (j, potential) in enumerate(tmp_target_potentials)
+            target_potentials[j] += potential
         end
     end
     return target_potentials

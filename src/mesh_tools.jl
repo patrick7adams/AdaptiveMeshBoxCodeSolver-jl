@@ -113,7 +113,7 @@ function showEdgeList(points::Vector{Tuple{Float64, Float64}})
     for i in 2:length(points)-1
         line = Meshes.Segment(Meshes.Point(points[i][1], points[i][2]), Meshes.Point(points[i+1][1], points[i+1][2]))
         # println(line)
-        viz!(line; color = :red, segmentsize = 1, showpoints = true, pointsize = 6)
+        viz!(line; color = :red, segmentsize = 1, showpoints = true, pointsize = 3)
     end
     display(fig)
 end
@@ -133,7 +133,7 @@ function showEdgeList(edges::Set{Tuple{Tuple{Float64, Float64}, Tuple{Float64, F
     for edge in edges
         line = Meshes.Segment(Meshes.Point(edge[1][1], edge[1][2]), Meshes.Point(edge[2][1], edge[2][2]))
         # println(line)
-        viz!(line; color = :red, segmentsize = 1, showpoints = true, pointsize = 6)
+        viz!(line; color = :red, segmentsize = 1, showpoints = true, pointsize = 3)
     end
     display(fig)
 end
@@ -157,43 +157,62 @@ function createCurveLoop(points)
     return curve_loop, lineTags
 end
 
-function createMesh(meshsize; outside_curve = [], holes = [])
-    # this is good so far. I can now create inscribed mesh polygons from a
-    # list of points. Very good, now will work on refinement criteria
-    # and return once proper internal mesh is done.
-    # Creates and returns a gmsh mesh to use
-    gmsh.initialize()
-    gmsh.option.setNumber("General.Verbosity", 3) # turn to 4/5 for info or debug, 3 is all that is necessary I think though
-    loops = []
-    if outside_curve == []
-        # circle = Inti.gmsh_curve((x) -> Inti.Point2D(cos(2*pi*x), sin(2*pi*x)), 0.0, 1.0; meshsize = meshsize)
-        points = []
-        for t in range(0, stop = 1, length=Int32(ceil(100 / meshsize)))[1:end-1]
-            point = (cos(t*2*pi), sin(t*2*pi))
-            push!(points, gmsh.model.geo.addPoint(point..., 0.0, meshsize))
-        end
-        push!(points, points[1])
-        polyloop = gmsh.model.geo.addPolyline(points)
-        curve_loop = gmsh.model.geo.addCurveLoop([polyloop])
-        push!(loops, curve_loop)
-    else
-        curve_loop = createCurveLoop(outside_curve)
-        push!(loops, curve_loop)
-    end
-
-    if holes != []
-        for hole in holes
-            hole_curve = createCurveLoop(hole)
-            push!(loops, hole_curve)
-        end
-    end
-    surf = gmsh.model.geo.addPlaneSurface(loops)
+function getMultiplicativeTerm(target_points, meshes)
+    terms = []
     
-    gmsh.model.geo.synchronize()
-    # gmsh.option.setNumber("Mesh.HighOrderOptimize", 1)
+    # check if point in quad mesh
+    quad_mesh = meshes[1]
+    # quad_terms = [:outside for x in target_points]
+    quad_terms = [:outside for x in target_points]
+    for (i, point) in enumerate(target_points)
+        for quad in Inti.elements(quad_mesh)
+            coords = [(x[1], x[2]) for x in Inti.vertices(quad)]
+            if (coords[1][1] <= point[1] && point[1] <= coords[3][1]) && (coords[1][2] <= point[2] && point[2] <= coords[3][2])
+                quad_terms[i] = :inside
+                break
+            end
+        end
+    end
+    push!(terms, quad_terms)
+
+    # first check if on boundary
+    for mesh in meshes[2:end]
+        mesh_terms = [:outside for x in target_points]
+        # quadrature = getBoundaryQuadrature(mesh, 12)
+        domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+        boundary_dom = Inti.boundary(domain)
+        boundary_mesh = Inti.view(mesh, boundary_dom)
+        quadrature = Inti.Quadrature(boundary_mesh; qorder = order)
+        for (i, point) in enumerate(target_points)
+            mult = Inti._green_multiplier(point, quadrature)
+            # println(mult)
+            rounded_mult = round(mult, digits=1)
+            if rounded_mult == -0.5
+                mesh_terms[i] = :on
+            elseif rounded_mult < -0.5
+                mesh_terms[i] = :inside
+            end
+        end
+        push!(terms, mesh_terms)
+    end
+    # now 1 if inside
+    return terms
+end
+
+function createMesh()
+    gmsh.initialize()
+    gmsh.clear()
+    parametrizations::Vector{Function} = [(x) -> (cos(2*x*pi), sin(2*x*pi))]
+    println(typeof(parametrizations))
+    splines = createSplines(parametrizations)
+    curve = gmsh.model.occ.addCurveLoop(splines)
+    surface = gmsh.model.occ.addPlaneSurface([curve])
+    gmsh.model.occ.synchronize()
+    gmsh.model.addPhysicalGroup(1, splines, -1, "Boundary")
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curvature_size)
+    gmsh.model.mesh.removeDuplicateNodes()
     gmsh.model.mesh.generate(2)
-    gmsh.model.mesh.setOrder(order)
-    mesh = Inti.import_mesh(; dim = 2)
+    mesh = Inti.import_mesh(; dim=2)
     gmsh.finalize()
     return mesh
 end

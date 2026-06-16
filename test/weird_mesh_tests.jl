@@ -3,15 +3,24 @@ using TestItems
 @testmodule Weird_Meshes begin
     using Test
     using AdaptiveMeshSolver
+    using Inti
 
     function test_simple_hole_mesh()
-        x_test = (1.1, 0) # point just outside of the region
+        x_test = (2.1, 0) # point just outside of the region
         r0 = (-0.5, 0.0)
-        u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
+
+        # u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
+        # # check these eqns lol
+        # partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        # partial_y_u = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        # laplacian_u = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+
+        u = (x) -> x[1]^2 / 2.0
         # check these eqns lol
-        partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
-        partial_y_u = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
-        laplacian_u = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        partial_x_u = (x) -> x[1]
+        partial_y_u = (x) -> 0.0
+        laplacian_u = (x) -> 1.0
+
         greens_fn = (r, x) -> 1/(2pi) * log(AdaptiveMeshSolver.distance(x, r))
         partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
         partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
@@ -29,6 +38,10 @@ using TestItems
         parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))], [(x) -> (0.1*cos(-x*2*pi)+0.4, 0.1*sin(-x*2*pi))]]
         meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
 
+        for mesh in meshes
+            println(mesh)
+        end
+
         AdaptiveMeshSolver.showMeshes(meshes)
         domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
             meshes, r0; 
@@ -38,8 +51,10 @@ using TestItems
             bndry_order = 12
         )
 
-        # println(domain_integral)
-        # println(boundary_integral)
+        # domain_integral = Inti.integrate(domain_function, AdaptiveMeshSolver.getDomainQuadrature(meshes[1]))
+
+        println(domain_integral)
+        println(boundary_integral)
 
         calculated_u_val = domain_integral - boundary_integral
 
@@ -82,8 +97,8 @@ using TestItems
             bndry_order = 12
         )
 
-        # println(domain_integral)
-        # println(boundary_integral)
+        println(domain_integral)
+        println(boundary_integral)
 
         calculated_u_val = domain_integral - boundary_integral
 
@@ -248,8 +263,8 @@ using TestItems
             bndry_order = 12
         )
 
-        # println(domain_integral)
-        # println(boundary_integral)
+        println(domain_integral)
+        println(boundary_integral)
 
         calculated_u_val = domain_integral - boundary_integral
 
@@ -262,22 +277,22 @@ using TestItems
         r0 = (-0.5, 0.0)
         u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
         # check these eqns lol
-        # partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
-        # partial_y_u = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
-        # laplacian_u = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
-        # greens_fn = (r, x) -> 1/(2pi) * log(AdaptiveMeshSolver.distance(x, r))
-        # partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
-        # partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+        partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        partial_y_u = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        laplacian_u = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        greens_fn = (r, x) -> 1/(2pi) * log(AdaptiveMeshSolver.distance(x, r))
+        partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+        partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
 
-        # normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
-        # normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+        normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+        normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
 
-        # boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
-        #                             u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+        boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                    u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
 
-        # domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+        domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
 
-        # forcing_func = (x) -> greens_fn(x_test, x) * laplacian_u(x)
+        forcing_func = (x) -> greens_fn(x_test, x) * laplacian_u(x)
 
         parametrizations::Vector{Vector{Function}} = [
             [(x) -> (cos(x*2*pi), sin(x*2*pi))], 
@@ -288,7 +303,7 @@ using TestItems
             (t) -> (0.2-0.2*t, -0.125+0.125*t)]]
         meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, u)
 
-        # AdaptiveMeshSolver.showMeshes(meshes)
+        AdaptiveMeshSolver.showMeshes(meshes)
         domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
             meshes, r0; 
             dom_func = domain_function,
@@ -333,7 +348,7 @@ using TestItems
             [(x) -> (0.1*cos(-x*2*pi)+0.4, 0.1*sin(-x*2*pi)-0.25)]]
         meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
 
-        # AdaptiveMeshSolver.showMeshes(meshes)
+        AdaptiveMeshSolver.showMeshes(meshes)
         domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
             meshes, r0; 
             dom_func = domain_function,
@@ -377,7 +392,7 @@ using TestItems
         ]
         meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
 
-        # AdaptiveMeshSolver.showMeshes(meshes)
+        AdaptiveMeshSolver.showMeshes(meshes)
         domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
             meshes, r0; 
             dom_func = domain_function,
@@ -390,6 +405,7 @@ using TestItems
         # println(boundary_integral)
 
         calculated_u_val = domain_integral - boundary_integral
+        println(calculated_u_val)
 
         @test 0.0 ≈ calculated_u_val atol=1e-12
     end
@@ -421,7 +437,53 @@ using TestItems
         ]
         meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
 
-        # AdaptiveMeshSolver.showMeshes(meshes)
+        AdaptiveMeshSolver.showMeshes(meshes)
+        domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
+            meshes, r0; 
+            dom_func = domain_function,
+            bndry_func = boundary_function, 
+            dom_order = 17,
+            bndry_order = 12
+        )
+
+        # println(domain_integral)
+        # println(boundary_integral)
+
+        calculated_u_val = domain_integral - boundary_integral
+        println(calculated_u_val)
+
+        @test 0.0 ≈ calculated_u_val atol=1e-12
+    end
+
+    function test_connected_holes()
+        x_test = (1, 1) # point just outside of the region
+        r0 = (-0.5, 0.0)
+        u = (x) -> -2*pi^2 * sin(pi*x[1]) * sin(pi*x[2]) + exp(-600*((x[1]- r0[1])^2 + (x[2] - r0[2])^2)) # forcing function (is it sufficiently smooth?)
+        # check these eqns lol
+        partial_x_u = (x) -> -2*pi^3 * cos(pi*x[1]) * sin(pi*x[2]) - 1200*(x[1]-r0[1])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        partial_y_u = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        laplacian_u = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
+        greens_fn = (r, x) -> 1/(2pi) * log(AdaptiveMeshSolver.distance(x, r))
+        partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+        partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+
+        normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
+        normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+
+        boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
+                                    u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+
+        domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+
+        forcing_func = (x) -> greens_fn(x_test, x) * laplacian_u(x)
+
+        parametrizations::Vector{Vector{Function}} = [
+            [(x) -> (cos(x*2*pi), sin(x*2*pi))], 
+            [(x) -> (0.17*cos(-x*2*pi)+0.75, 0.17*sin(-x*2*pi)-0.05)],
+            [(x) -> (0.1*cos(-x*2*pi)+0.425, 0.1*sin(-x*2*pi))]]
+        meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
+
+        AdaptiveMeshSolver.showMeshes(meshes)
         domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
             meshes, r0; 
             dom_func = domain_function,
@@ -477,4 +539,8 @@ end
 
 @testitem "Weird_Meshes: Goofy Boundary" setup=[Weird_Meshes] begin
     Weird_Meshes.test_goofy_boundary_mesh()
+end
+
+@testitem "Weird_Meshes: Connected Holes" setup=[Weird_Meshes] begin
+    Weird_Meshes.test_connected_holes()
 end

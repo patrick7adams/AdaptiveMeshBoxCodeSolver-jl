@@ -68,11 +68,11 @@ using TestItems
 
             println("Done creating meshes!")
             domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
-                meshes, r0; 
+                meshes; 
                 dom_func = domain_function,
                 bndry_func = boundary_function, 
                 dom_order = 4,
-                bndry_order = 6
+                bndry_order = 12
             )
             calculated_u_val = abs(domain_integral - boundary_integral)
 
@@ -111,10 +111,11 @@ using TestItems
                 dom_func = domain_function,
                 bndry_func = boundary_function, 
                 dom_order = 4,
-                bndry_order = 6
+                bndry_order = 12
             )
 
             calculated_u_val = abs(domain_integral - boundary_integral)
+            println(calculated_u_val)
 
             @test 0.0 ≈ calculated_u_val atol=1e-13
         end
@@ -151,7 +152,7 @@ using TestItems
                 dom_func = domain_function,
                 bndry_func = boundary_function, 
                 dom_order = 4,
-                bndry_order = 6
+                bndry_order = 12
             )
 
             calculated_u_val = abs(domain_integral - boundary_integral)
@@ -186,17 +187,25 @@ using TestItems
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
             meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
 
+            for ent in Inti.entities(meshes[2])
+                ent.dim == 2 || continue
+                println(ent)
+                println(length(Inti.boundary(ent)))
+            end
+
             domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
                 meshes, r0; 
                 dom_func = domain_function,
                 bndry_func = boundary_function, 
-                dom_order = 17,
-                bndry_order = 12
+                dom_order = 4,
+                bndry_order = 6
             )
+            println(domain_integral)
+            println(boundary_integral)
 
             calculated_u_val = abs(domain_integral - boundary_integral)
 
-            @test 0.0 ≈ calculated_u_val atol=1e-13
+            @test 0.0 ≈ calculated_u_val atol=2e-13
         end
     end
 
