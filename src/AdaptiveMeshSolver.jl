@@ -9,7 +9,6 @@ using GeometryBasics
 using Colorfy
 using FMM2D
 using IterativeSolvers, LinearAlgebra
-using Revise
 using ClassicalOrthogonalPolynomials, MultivariateSingularIntegrals
 
 include("mesh_tools.jl")
