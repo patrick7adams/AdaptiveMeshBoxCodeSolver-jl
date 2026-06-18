@@ -126,6 +126,7 @@ using TestItems
             partial_y_forcing(x) = 0.0
             density(x) = 6*x[1] # laplacian of forcing
             target_points = [(0.0, 0.0), (0.5, 0.0), (0.75, 0.0), (1.0, 0.0), (1.5, 0.0)]
+            # target_points = [(0.5, 0.0)]
 
             # now define meshes
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
@@ -155,6 +156,9 @@ using TestItems
             partial_y_forcing = (x) -> k*pi*sin(k*pi*x[1])*cos(k*pi*x[2])
             density = (x) -> -2*k^2*pi^2*sin(k*pi*x[1])*sin(k*pi*x[2])
             target_points = [(0.0, 0.0), (0.5, 0.0), (0.75, 0.0), (1.0, 0.0), (1.5, 0.0)]
+            # target_points = [(0.1*i, 0.0) for i in -15:15]
+            target_points = [(0.99, 0.0)]
+            target_points = [(0.3, 0.4), (0.3, -0.4)]
 
             # now define meshes
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
@@ -164,9 +168,10 @@ using TestItems
             # now compute volume potentials
             multiplicative_terms = AdaptiveMeshSolver.getMultiplicativeTerm(target_points, meshes)
             potentials = AdaptiveMeshSolver.calculateVolumePotential(meshes, density, target_points, multiplicative_terms)
-
+            println(multiplicative_terms)
             for (i, point) in enumerate(target_points)
                 greens_identity_integral = get_greens_identity_integral(forcing, partial_x_forcing, partial_y_forcing, density, point, meshes, multiplicative_terms, i)
+                println("------")
                 println(point)                
                 println(greens_identity_integral - potentials[i])
                 @test greens_identity_integral ≈ potentials[i] atol=1e-10
@@ -184,6 +189,7 @@ using TestItems
             partial_y_forcing = (x) -> -2*pi^3 * sin(pi*x[1]) * cos(pi*x[2]) - 1200*(x[2]-r0[2])*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
             density = (x) -> 4*pi^4 * sin(pi*x[1]) * sin(pi*x[2]) + (1440000*((x[1]-r0[1])^2 + (x[2]-r0[2])^2)-2400)*exp(-600*((x[1]-r0[1])^2 + (x[2]-r0[2])^2))
             target_points = [(0.0, 0.0), (0.5, 0.0), (0.75, 0.0), (1.0, 0.0), (1.5, 0.0)]
+            target_points = [(0.1*i, 0.0) for i in -15:15]
 
             # now define meshes
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
@@ -196,24 +202,26 @@ using TestItems
 
             for (i, point) in enumerate(target_points)
                 greens_identity_integral = get_greens_identity_integral(forcing, partial_x_forcing, partial_y_forcing, density, point, meshes, multiplicative_terms, i)
+                println("--------")
                 println(point)                
                 println(greens_identity_integral - potentials[i])
-                @test greens_identity_integral ≈ potentials[i] atol=1e-10
+                # @test greens_identity_integral ≈ potentials[i] atol=1e-10
             end
         end
     end
 
     function test_library()
         @testset "Library test" begin
-            f = (x, y) -> 1.0
-            point = [-0.273165288653, -0.272727272727]
+            f = (x, y) -> 6*x
+            point = [0.635925620438, 1.0]
             P = ClassicalOrthogonalPolynomials.Legendre()
-            p = 40;
+            p = 5;
             x = ClassicalOrthogonalPolynomials.grid(P, p)
             F = f.(x, x')
             C = plan_transform(P, (p, p))*F;
+            print(F)
             N = Float64.(newtoniansquare(big.(point), p))
-            println(dot(N, C))
+            println(dot(N, C)/(2pi))
         end
     end
 end

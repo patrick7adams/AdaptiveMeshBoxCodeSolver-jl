@@ -667,7 +667,8 @@ function getMeshBounds(boundary_parametrizations::Vector{Function})::Tuple{Tuple
             for j in 1:2
                 if point[j] < lb[j]
                     lb[j] = point[j]
-                elseif point[j] > ub[j]
+                end
+                if point[j] > ub[j]
                     ub[j] = point[j]
                 end
             end
@@ -1128,7 +1129,7 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
     # from it for optimization (maybe) and I can construct the quadratures individually
     greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
     potentials = [0.0 for point in target_points]
-    deg = 20;
+    deg = 5;
     F_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Matrix{Float64}}()
     L_map = Dict{Vector{Float64}, Matrix{Float64}}()
     Correction_map = getCorrectionMap(quad_mesh, 10, u)
@@ -1155,7 +1156,7 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
             if haskey(F_map, elem)
                 F = F_map[elem]
             else
-                ux = generatePoints(deg, u, x, bounds)
+                ux = generatePoints(deg, u, x, bounds)'
                 tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
                 F = (tmp_F * ux)
                 F_map[elem] = F
@@ -1170,17 +1171,15 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
                 L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(mapped_target_point), deg))
                 L_map[mapped_target_point] = L
             end
-            I = dot(F, L)
-            
+            I = dot(L, F)
             term = I*h^2 / (8*pi) - log(2/h)/(2*pi)*Correction_map[elem]
             potentials[i] += term
-            # if elem == near_singular_quads[1]
-            #     println(coords)
-            #     println(term)
-            #     # println(Correction_map[elem])
-            #     # println(point)
-            #     println(I)
-            #     println(mapped_target_point)
+            # if elem in singular_quads
+            #     println("--------")
+            #     println("Coords: ", coords)
+            #     println("Quad Contribution: ", term)
+            #     println("Density integral over quad: ", I)
+            #     println("Relative target point position: ", mapped_target_point)
             # end
         end
         # okay so. no error in I, but error in term.
