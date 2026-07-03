@@ -25,7 +25,38 @@ function showMesh(msh)
     display(fig)
 end
 
-function showSeparatedMesh(msh, singular_elems, near_singular_elems, quad)
+function showErrorMesh(meshes, quadrature_points, errors)
+    println("Showing error mesh!!!")
+    quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, meshes[1])
+    quadtree_mesh = view(meshes[1], quadtree_dom)
+    all_items = viz(
+        quadtree_mesh;
+        segmentsize = 1,
+        showsegments = true,
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (1000, 1000)),
+    )
+    fig, ax, plt = all_items
+    for mesh in meshes[2:end]
+        strip_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+        strip_boundary = get_boundary(mesh)
+
+        strip_dom_mesh = view(mesh, strip_dom)
+        strip_boundary_mesh = view(mesh, strip_boundary)
+
+        viz!(strip_dom_mesh; showsegments = true)
+        viz!(strip_boundary_mesh; color = :red, segmentsize = 1)
+    end
+    quadrature_pointset = Meshes.PointSet(quadrature_points)
+    colors = log10.(errors)
+    viz!(ax, quadrature_pointset; color = colors, colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), pointsize = 8, alpha = 1.0, showpoints = true)
+
+    Colorbar(fig[1, 2]; colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), label = "log_{10} of error")
+
+    display(fig)
+end
+
+function showSeparatedMesh(msh, singular_elems, quad, point)
     println("Showing Separated mesh!!!")
 
     Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
@@ -37,14 +68,14 @@ function showSeparatedMesh(msh, singular_elems, near_singular_elems, quad)
         axis = (aspect = DataAspect(),),
         figure = (; size = (400, 400)),
     )
-    if length(near_singular_elems) > 0
-        near_singular_coords = []
-        for elem in near_singular_elems
-            append!(near_singular_coords, [(x[1], x[2]) for x in Inti.vertices(elem)])
-        end
-        near_singular_pointset = Meshes.PointSet(near_singular_coords)
-        viz!(near_singular_pointset; color = :green, pointsize = 6, showpoints = true)
-    end
+    # if length(near_singular_elems) > 0
+    #     near_singular_coords = []
+    #     for elem in near_singular_elems
+    #         append!(near_singular_coords, [(x[1], x[2]) for x in Inti.vertices(elem)])
+    #     end
+    #     near_singular_pointset = Meshes.PointSet(near_singular_coords)
+    #     viz!(near_singular_pointset; color = :green, pointsize = 6, showpoints = true)
+    # end
     if length(singular_elems) > 0
         singular_coords = []
         for elem in singular_elems
@@ -55,6 +86,7 @@ function showSeparatedMesh(msh, singular_elems, near_singular_elems, quad)
     end
     domain_quad_coords = Meshes.PointSet(map((q) -> Meshes.Point(q.coords...), quad))
     viz!(domain_quad_coords; color = :blue, pointsize = 2)
+    viz!(Meshes.Point(point); color = :green, pointsize = 10)
     display(fig)
 end
 
@@ -203,13 +235,12 @@ function createMesh()
     gmsh.initialize()
     gmsh.clear()
     parametrizations::Vector{Function} = [(x) -> (cos(2*x*pi), sin(2*x*pi))]
-    println(typeof(parametrizations))
     splines = createSplines(parametrizations)
     curve = gmsh.model.occ.addCurveLoop(splines)
     surface = gmsh.model.occ.addPlaneSurface([curve])
     gmsh.model.occ.synchronize()
     gmsh.model.addPhysicalGroup(1, splines, -1, "Boundary")
-    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curvature_size)
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 200)
     gmsh.model.mesh.removeDuplicateNodes()
     gmsh.model.mesh.generate(2)
     mesh = Inti.import_mesh(; dim=2)
