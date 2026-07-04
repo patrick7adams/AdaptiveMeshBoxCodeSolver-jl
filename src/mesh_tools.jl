@@ -49,6 +49,8 @@ function showErrorMesh(meshes, quadrature_points, errors)
     end
     quadrature_pointset = Meshes.PointSet(quadrature_points)
     colors = log10.(errors)
+    println(minimum(errors))
+    println(maximum(errors))
     viz!(ax, quadrature_pointset; color = colors, colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), pointsize = 8, alpha = 1.0, showpoints = true)
 
     Colorbar(fig[1, 2]; colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), label = "log_{10} of error")
@@ -56,11 +58,11 @@ function showErrorMesh(meshes, quadrature_points, errors)
     display(fig)
 end
 
-function showSeparatedMesh(msh, singular_elems, quad, point)
+function showSeparatedMesh(meshes, singular_elems, quad, point)
     println("Showing Separated mesh!!!")
 
-    Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
-    Ω_msh = @views msh[Ω]
+    Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, meshes[1])
+    Ω_msh = @views meshes[1][Ω]
     fig = viz(
         Ω_msh;
         segmentsize = 1,
@@ -68,14 +70,16 @@ function showSeparatedMesh(msh, singular_elems, quad, point)
         axis = (aspect = DataAspect(),),
         figure = (; size = (400, 400)),
     )
-    # if length(near_singular_elems) > 0
-    #     near_singular_coords = []
-    #     for elem in near_singular_elems
-    #         append!(near_singular_coords, [(x[1], x[2]) for x in Inti.vertices(elem)])
-    #     end
-    #     near_singular_pointset = Meshes.PointSet(near_singular_coords)
-    #     viz!(near_singular_pointset; color = :green, pointsize = 6, showpoints = true)
-    # end
+    for mesh in meshes[2:end]
+        strip_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+        strip_boundary = get_boundary(mesh)
+
+        strip_dom_mesh = view(mesh, strip_dom)
+        strip_boundary_mesh = view(mesh, strip_boundary)
+
+        viz!(strip_dom_mesh; showsegments = true)
+        viz!(strip_boundary_mesh; color = :red, segmentsize = 1)
+    end
     if length(singular_elems) > 0
         singular_coords = []
         for elem in singular_elems
@@ -87,6 +91,11 @@ function showSeparatedMesh(msh, singular_elems, quad, point)
     domain_quad_coords = Meshes.PointSet(map((q) -> Meshes.Point(q.coords...), quad))
     viz!(domain_quad_coords; color = :blue, pointsize = 2)
     viz!(Meshes.Point(point); color = :green, pointsize = 10)
+
+    point_list = [(0.2908767452425044, 0.6752146835957239),(0.2908767452425044, 0.5754898716685045), (0.4166184434922614, 0.6776414331925313), (0.35231495232434595, 0.627674221001969), (0.35231495232434595, 0.6741279735048046), (0.2937420293285783, 0.626543793949986)]
+    for pnt in point_list
+        viz!(Meshes.Point(pnt); color = :red, pointsize = 4)
+    end
     display(fig)
 end
 
@@ -114,6 +123,7 @@ function showMeshes(meshes)
     display(fig)
 end
 
+# function showMeshesHeatmap(meshes, )
 
 function showMeshWithQuadrature(msh, quad)
     println("Showing mesh!!!")
@@ -217,11 +227,7 @@ function getMultiplicativeTerm(target_points, meshes)
         quadrature = Inti.Quadrature(boundary_mesh; qorder = order)
         for (i, point) in enumerate(target_points)
             mult = Inti._green_multiplier(point, quadrature)
-            # println(mult)
-            rounded_mult = round(mult, digits=1)
-            if rounded_mult == -0.5
-                mesh_terms[i] = :on
-            elseif rounded_mult < -0.5
+            if mult < -0.5
                 mesh_terms[i] = :inside
             end
         end

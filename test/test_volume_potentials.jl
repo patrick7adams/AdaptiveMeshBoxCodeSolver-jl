@@ -321,12 +321,7 @@ using TestItems
                 points = [(q.coords[1], q.coords[2]) for q in quadrature]
                 append!(target_points, points)
             end
-            # target_points = [(-0.7046722991094017, -0.0001280194753559916)]
-            # target_points = [target_points[2]]
-            # println(target_points[1])
-
-            # now compute volume potentials
-            # we can do this easily now that we know the points are quadrature points
+            
             multiplicative_terms = AdaptiveMeshSolver.getMultiplicativeTerm(target_points, meshes)
             println("Calculating volume potentials")
             potentials = AdaptiveMeshSolver.calculateVolumePotential(meshes, density, target_points, multiplicative_terms)

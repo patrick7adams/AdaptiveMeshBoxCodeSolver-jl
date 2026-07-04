@@ -910,47 +910,44 @@ function getQuadFromPoint(tree::P4estTypes.Tree, point::Tuple{Float64, Float64})
     end
 end
 
-function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_func::Function)
+function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_func::Function, verbose=false)
     # Creates the meshes describing the boundary region and the quadtree
     # important note: the first function in parametrizations is assumed to be the boundary, the others are assumed to be holes
     gmsh.initialize()
     gmsh.option.setNumber("General.Verbosity", 3)
     Inti.clear_entities!()
-    println("Creating Quadtree")
+    if verbose
+        println("Creating Quadtree")
+    end
 
     initializeMeshVariables(parametrizations, forcing_func)
-    println("Initialized Mesh Variables")
+    if verbose
+        println("Initialized Mesh Variables")
+    end
 
     # println(bndry_mesh_points)
     
     forest = createQuadtree()
-    println("Created Quadtree")
-    # point = (0.10795, -0.907795)
-    # point = (-0.21563770872503343, 0.9951847266721969)
-    # quad = getQuadFromPoint(forest[1], point)
-    # GEO, DOM = get_GEO_DOM(quad)
-    # println(quad)
-    # println(GEO)
-    # println(DOM)
-    # showGeoQuadtreeMesh(forest)
-    # error("stop")
-
-    
+    if verbose
+        println("Created Quadtree")
+    end
 
     quad_mesh = createQuadtreeMesh(forest)
-    println("Meshed Quadtree")
-
-    # showMesh(quad_mesh)
+    if verbose
+        println("Meshed Quadtree")
+    end
     
     point_associations, internal_points = getInternalBoundaryPoints(forest[1])
-    println("Created Internal Boundary")
+    if verbose
+        println("Created Internal Boundary")
+    end
 
     boundary_strip_meshes = createBoundaryStripMeshes(point_associations, internal_points, parametrizations)
-    println("Meshed Boundary Strips")
+    if verbose
+        println("Meshed Boundary Strips")
+    end
 
     meshes = [quad_mesh, boundary_strip_meshes...]
-
-    # showGeoQuadtreeMesh(meshes, forest)
 
     gmsh.clear()
     gmsh.finalize()
@@ -973,37 +970,6 @@ function getBoundaryQuadrature(mesh, order)
     return boundary_quadrature
 end
 
-function calculateIntegrals(quadratures; dom_func=nothing, bndry_func=nothing, dom_order=4, bndry_order=6)
-    # calculates based on specified functions; if a dom_func is given, calculate domain integral. If a bndry_func is given, calculate boundary integral.
-    # first do quadtree mesh
-    dom_int = nothing
-    bndry_int = nothing
-    if !isnothing(dom_func)
-        println("dom integrals")
-        dom_int = 0
-        for (i, mesh) in enumerate(meshes)
-            domain_quadrature = getDomainQuadrature(mesh, dom_order)
-            dom_int += Inti.integrate(dom_func, domain_quadrature)
-        end
-    end
-    if !isnothing(bndry_func)
-        bndry_int = 0
-        for (i, mesh) in enumerate(meshes[2:end])
-            boundary_quadrature = getBoundaryQuadrature(mesh, bndry_order)
-            bndry_int += Inti.integrate(bndry_func, boundary_quadrature)
-        end
-    end
-    if isnothing(dom_int) && isnothing(bndry_int)
-        error("No input functions!")
-    elseif isnothing(dom_int) && !isnothing(bndry_int)
-        return bndry_int
-    elseif !isnothing(dom_int) && isnothing(bndry_int)
-        return dom_int
-    else
-        return dom_int, bndry_int
-    end
-end
-
 function generatePoints(u, x, bounds)
     # x is a vector of deg points between 1 and -1, transform into quad dimensions
     x_normal = [xi / 2 + 1/2 for xi in x]
@@ -1019,11 +985,12 @@ function generatePoints(u, x, bounds)
     return stack([[u((xi, yi)) for xi in x_xdim] for yi in x_ydim], dims=1)
 end
 
-function separateMesh(mesh, point, num_neighbors)
+function separateMesh(meshes, quadrature, point)
     function roundPoint(pnt, digits=8)
         return (round(pnt[1], digits=digits), round(pnt[2], digits=digits))
     end
     # separates the mesh into:
+    mesh = meshes[1]
     # 1. a quadrature of the nonsingular points
     # 2. a list of elements of the mesh for the singular / near-singular quads
 
@@ -1035,15 +1002,12 @@ function separateMesh(mesh, point, num_neighbors)
         center = ((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)
         center_dist = distance(center, point)
         relative_dist = center_dist / source_h
-        if relative_dist < 1.1
+        if relative_dist < 1.5
             push!(good_elements, elem)
         end
     end
 
     # NOW from the separated mesh we need to get the quadrature of the rest of the mesh
-    domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
-    domain_mesh = Inti.view(mesh, domain)
-    quadrature = Inti.Quadrature(domain_mesh; qorder = 5)
     n = length([x for x in Inti.elements(mesh)])
     points_per_quad = Int64(length(quadrature) / n)
     culled_quadrature = Vector{Inti.QuadratureNode}()
@@ -1063,7 +1027,7 @@ function separateMesh(mesh, point, num_neighbors)
             append!(culled_quadrature, quadrature[i*points_per_quad+1:(i+1)*points_per_quad])
         end
     end
-    # showSeparatedMesh(mesh, good_elements, culled_quadrature, point)
+    showSeparatedMesh(meshes, good_elements, culled_quadrature, point)
     return good_elements, culled_quadrature
 end
 
@@ -1095,7 +1059,8 @@ function getCorrectionMap(quad_mesh, order, u)
     return Correction_map
 end
 
-function calculateQuadVolumePotential(quad_mesh, u, target_points)
+function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
+    quad_mesh = meshes[1]
     greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
     potentials = [0.0 for point in target_points]
     deg = 40;
@@ -1107,10 +1072,10 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
     P = ClassicalOrthogonalPolynomials.Legendre()
     
     x = ClassicalOrthogonalPolynomials.grid(P, deg)
-
+    
     for (i, point) in enumerate(target_points)
         println(Float64(i) / Float64(length(target_points)))
-        singular_quads, far_quadrature = separateMesh(quad_mesh, point, 1)
+        singular_quads, far_quadrature = separateMesh(meshes, quadrature, point)
         for elem in singular_quads
             # first create F
             coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
@@ -1151,12 +1116,16 @@ function calculateQuadVolumePotential(quad_mesh, u, target_points)
      
         domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
         potentials[i] += sum(domain_func(q)*q.weight for q in far_quadrature)
+
+        # for elem in Inti.elements(quad_mesh)
+        #     println(Inti.vertices(elem))
+        # end
+        # println(sum(domain_func(q)*q.weight for q in far_quadrature))
     end
     return potentials
 end
 
-function calculateTriangleVolumePotential(mesh, density, target_points, multiplicative_terms)
-    quadrature = getDomainQuadrature(mesh, 5)
+function calculateTriangleVolumePotential(quadrature, density, target_points, multiplicative_terms)
     op = Inti.Laplace(; dim=2)
     inside_target_points = Vector{Tuple{Float64, Float64}}()
     boundary_target_points = Vector{Tuple{Float64, Float64}}()
@@ -1164,6 +1133,7 @@ function calculateTriangleVolumePotential(mesh, density, target_points, multipli
     inside_indices = Vector{Int64}()
     boundary_indices = Vector{Int64}()
     outside_indices = Vector{Int64}()
+    # println(multiplicative_terms)
     for (i, point) in enumerate(target_points)
         if multiplicative_terms[i] == :on
             push!(boundary_target_points, point)
@@ -1176,54 +1146,88 @@ function calculateTriangleVolumePotential(mesh, density, target_points, multipli
             push!(outside_indices, i)
         end
     end
-    inside_volume_potential = Inti.volume_potential(; 
-        op, 
-        target = inside_target_points, 
-        source = quadrature,
-        compression = (method = :none, ),
-        correction = (method = :dim, maxdist=Inf, target_location=:inside), 
-        # correction = (method = :none, ),
-    )
-    boundary_volume_potential = Inti.volume_potential(; 
-        op, 
-        target = boundary_target_points, 
-        source = quadrature,
-        compression = (method = :none, ),
-        correction = (method = :dim, maxdist=Inf, target_location=:on), 
-        # correction = (method = :none, ),
-    )
-    outside_volume_potential = Inti.volume_potential(; 
-        op, 
-        target = outside_target_points, 
-        source = quadrature,
-        compression = (method = :none, ),
-        correction = (method = :dim, maxdist=Inf, target_location=:outside), 
-        # correction = (method = :none, ),
-    )
-    laplacian_points = [density(q.coords) for q in quadrature]
-    inside_potentials = inside_volume_potential * laplacian_points
-    boundary_potentials = boundary_volume_potential * laplacian_points
-    outside_potentials = outside_volume_potential * laplacian_points
-    # println(outside_potentials)
-    # now reconstruct potentials list
+    max_dist = 0.2
     potentials = [0.0 for x in target_points]
-    for i in 1:length(inside_potentials)
-        potentials[inside_indices[i]] = -inside_potentials[i] 
+    laplacian_points = [density(q.coords) for q in quadrature]
+
+    if length(inside_target_points) > 0
+        inside_volume_potential = Inti.volume_potential(; 
+            op, 
+            target = inside_target_points, 
+            source = quadrature,
+            compression = (method = :none, ),
+            correction = (method = :dim, maxdist=max_dist, target_location=:inside), 
+            # correction = (method = :dim,)
+            # correction = (method = :none, ),
+        )
+        # inside_volume_potential_2 = Inti.volume_potential(; 
+        #     op, 
+        #     target = inside_target_points, 
+        #     source = quadrature,
+        #     compression = (method = :none, ),
+        #     # correction = (method = :dim, maxdist=max_dist, target_location=:inside), 
+        #     # correction = (method = :dim,)
+        #     correction = (method = :none, ),
+        # )
+        # # println(quadrature.etype2qtags)
+        # inside_volume_potential -= inside_volume_potential_2
+        # # inside_volume_potential = inside_volume_potential_2
+        
+        
+
+        # inside_volume_potential_mat = Matrix(inside_volume_potential)
+        # for (i, q) in enumerate(quadrature)
+        #     if inside_volume_potential_mat[i] != 0.0
+        #         println(inside_volume_potential_mat[i], " | ", q.coords)
+        #     end
+        #     # println(q.coords + " | " + q.weight + " | " + inside_volume_potential[])
+        # end
+
+        inside_potentials = inside_volume_potential * laplacian_points
+        for i in 1:length(inside_potentials)
+            potentials[inside_indices[i]] = -inside_potentials[i] 
+        end
+        
     end
-    for i in 1:length(boundary_potentials)
-        potentials[boundary_indices[i]] = -boundary_potentials[i] 
+    if length(boundary_target_points) > 0
+        boundary_volume_potential = Inti.volume_potential(; 
+            op, 
+            target = boundary_target_points, 
+            source = quadrature,
+            compression = (method = :none, ),
+            correction = (method = :dim, maxdist=max_dist, target_location=:on), 
+            # correction = (method = :dim,)
+            # correction = (method = :none, ),
+        )
+        boundary_potentials = boundary_volume_potential * laplacian_points
+        for i in 1:length(boundary_potentials)
+            potentials[boundary_indices[i]] = -boundary_potentials[i] 
+        end
     end
-    for i in 1:length(outside_potentials)
-        potentials[outside_indices[i]] = -outside_potentials[i] 
+    if length(outside_target_points) > 0
+        outside_volume_potential = Inti.volume_potential(; 
+            op, 
+            target = outside_target_points, 
+            source = quadrature,
+            compression = (method = :none, ),
+            correction = (method = :dim, maxdist=max_dist, target_location=:outside), 
+            # correction = (method = :dim,)
+            # correction = (method = :none, ),
+        )
+        outside_potentials = outside_volume_potential * laplacian_points
+        for i in 1:length(outside_potentials)
+            potentials[outside_indices[i]] = -outside_potentials[i] 
+        end
     end
+    # println(potentials)
     return potentials
 end
 
-function calculateVolumePotential(meshes, u, target_points, multiplicative_terms)
+function calculateVolumePotential(quadratures, meshes, u, target_points, multiplicative_terms)
     # calculates the volume potential over the quadratures. Assumes that the first quadrature passed represents the quadtree.
-    target_potentials = calculateQuadVolumePotential(meshes[1], u, target_points)
-    for (i, mesh) in enumerate(meshes[2:end])
-        tmp_target_potentials = calculateTriangleVolumePotential(mesh, u, target_points, multiplicative_terms[i+1])
+    target_potentials = calculateQuadVolumePotential(meshes, quadratures[1], u, target_points)
+    for (i, quadrature) in enumerate(quadratures[2:end])
+        tmp_target_potentials = calculateTriangleVolumePotential(quadrature, u, target_points, multiplicative_terms[i+1])
         for (j, potential) in enumerate(tmp_target_potentials)
             target_potentials[j] += potential
         end
