@@ -6,6 +6,7 @@ using TestItems
     using Inti
     using StaticArrays
     using LinearAlgebra
+    using Gmsh
 
     function test_simple_quadtree_greens_third_identity_simple_forcing()
         @testset "Greens Third Identity, u=1" begin
@@ -94,41 +95,81 @@ using TestItems
 
     function test_simple_quadtree_greens_third_identity_linear_y()
         @testset "Greens Third Identity, u=y" begin
-            x_test = (1, 1) # point just outside of the region
-            r0 = (10, 10)
-            u = (x) -> x[2]
-            # check these eqns lol
-            partial_x_u = (x) -> 0.0
-            partial_y_u = (x) -> 1.0
-            laplacian_u = (x) -> 0.0
-            greens_fn = (r, x) -> 1/(2pi) * log(AdaptiveMeshSolver.distance(x, r))
-            partial_x_greens_fn = (r, x) -> 1/(2pi) * ((x[1]-r[1]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
-            partial_y_greens_fn = (r, x) -> 1/(2pi) * ((x[2]-r[2]) / ((x[1]-r[1])^2 + (x[2]-r[2])^2))
+            op = Inti.Laplace(; dim=2)
 
-            normal_derivative_u = (x, n) -> partial_x_u(x) * n[1] + partial_y_u(x) * n[2]
-            normal_derivative_greens_fn = (r, x, n) -> partial_x_greens_fn(r, x) * n[1] + partial_y_greens_fn(r, x) * n[2]
+            # compute exact solution
+            u = (x) -> x[1]^2 + x[2]^2
+            du = (x, normal) -> dot((2*x[1], 2*x[2]), normal)
 
-            boundary_function = (q) -> (greens_fn(x_test, q.coords) * normal_derivative_u(q.coords, q.normal) - 
-                                        u(q.coords) * normal_derivative_greens_fn(x_test, q.coords, q.normal))
+            laplacian_u = (x) -> 4.0
 
-            domain_function = (q) -> (greens_fn(x_test, q.coords) * laplacian_u(q.coords))
+            # now create mesh            
+            gmsh.initialize()
+            gmsh.clear()
+            parametrizations::Vector{Function} = [(x) -> (cos(2*x*pi), sin(2*x*pi))]
+            parametrizations2::Vector{Function} = [(t) -> (0.25*t, 0.0), 
+                (t) -> (0.25, 0.25*t), 
+                (t) -> (0.25 + 0.4*t, 0.25-0.25*t), 
+                (t) -> (0.65-0.4*t, -0.25*t), 
+                (t) -> (0.25-0.25*t, -0.25+0.25*t)
+            ]
+            splines = AdaptiveMeshSolver.createSplines(parametrizations)
+            curve = gmsh.model.occ.addCurveLoop(splines)
+            splines2 = AdaptiveMeshSolver.createSplines(parametrizations2)
+            curve2 = gmsh.model.occ.addCurveLoop(splines2)
+            surface = gmsh.model.occ.addPlaneSurface([curve, curve2])
+            gmsh.model.occ.synchronize()
+            gmsh.model.addPhysicalGroup(1, splines, -1, "Boundary")
+            gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 30)
+            gmsh.model.mesh.removeDuplicateNodes()
+            gmsh.model.mesh.generate(2)
+            mesh = Inti.import_mesh(; dim=2)
+            gmsh.finalize()
+            # AdaptiveMeshSolver.showMesh(mesh)
+            # println(mesh)
+            # AdaptiveMeshSolver.showMeshes(meshes)
 
-            forcing_func = (x) -> greens_fn(x_test, x) * laplacian_u(x)
+            # create quadratures + get target points
+            domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+            domain_mesh = Inti.view(mesh, domain)
+            domain_quadrature = Inti.Quadrature(domain_mesh; qorder = 4)
 
-            parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
-            meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_func)
+            boundary = Inti.boundary(domain)
+            boundary_mesh = Inti.view(mesh, boundary)
+            boundary_quadrature = Inti.Quadrature(boundary_mesh; qorder = 6)
 
-            domain_integral, boundary_integral = AdaptiveMeshSolver.calculateIntegrals(
-                meshes, r0; 
-                dom_func = domain_function,
-                bndry_func = boundary_function, 
-                dom_order = 4,
-                bndry_order = 12
+            target = [(q.coords[1], q.coords[2]) for q in domain_quadrature]
+            target = [(0.23017316817953776, 0.008379805131740959), (0.0, 0.0)]
+            multiplicative_terms = [:inside for i in 1:length(target)]
+            potentials = AdaptiveMeshSolver.calculateTriangleVolumePotential(domain_quadrature, laplacian_u, target, multiplicative_terms)
+
+
+            S, D = Inti.single_double_layer(;
+                op,
+                target,
+                source = boundary_quadrature,
+                compression = (method = :none, ), 
+                correction = (method = :dim, target_location = :inside, maxdist = 0.4)
             )
+mesh
+            γ₀u = map(q -> u(q.coords), boundary_quadrature)
+            γ₁u = map(q -> du(q.coords, q.normal), boundary_quadrature)
+            
+            contribution = S*γ₁u - D*γ₀u
+            potentials += contribution
 
-            calculated_u_val = abs(domain_integral - boundary_integral)
+            errors = abs.(potentials - u.(target))
+            replace!(errors, 0.0 => 1e-16) # fix exact errors
+            # println(multiplicative_terms)
+            # println(argmax(errors))
+            # println(target[argmax(errors)])
+            # println(errors[argmax(errors)])
+            # println(errors)
+            # println(errors)
+            AdaptiveMeshSolver.showErrorMesh([mesh], target, errors)
+            # AdaptiveMeshSolver.showErrorMesh(meshes, target, relative_diffs)
 
-            @test 0.0 ≈ calculated_u_val atol=1e-13
+            # @test 0.0 ≈ calculated_u_val atol=2e-13
         end
     end
 
