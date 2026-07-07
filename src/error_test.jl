@@ -84,7 +84,8 @@ laplacian_u = (x) -> 4.0
 # now, create the mesh         
 parametrizations::Vector{Function} = [(x) -> (cos(2*x*pi), sin(2*x*pi))]
 
-for offset in [0.1*t for t in -4:4]
+# for offset in [0.1*t for t in -4:4]
+for offset in [0.0]
     parametrizations2::Vector{Function} = [(t) -> (0.25*t, 0.0), 
         (t) -> (0.25+offset*t, 0.25*t), 
         (t) -> ((0.25+offset) + (0.4-offset)*t, 0.25-0.25*t), 
@@ -165,6 +166,7 @@ for offset in [0.1*t for t in -4:4]
             push!(diff_coords, Vector(q.coords))
         end
     end
+    println(diff_coords)
 
     inside_potentials = inside_volume_potential * laplacian_points
     for i in 1:length(inside_potentials)

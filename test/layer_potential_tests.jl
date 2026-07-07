@@ -1,6 +1,6 @@
 using TestItems
 
-@testmodule Greens_Identity begin
+@testmodule Layer_Potential begin
     using Test
     using AdaptiveMeshSolver
     using Inti
@@ -8,95 +8,15 @@ using TestItems
     using LinearAlgebra
     using Gmsh
 
-    function test_simple_quadtree_greens_third_identity_quadratic()
-        @testset "Greens Third Identity, u=x^2+y^2" begin
+    function test_layer_potentials_simple()
+        @testset "Layer Potentials: Simple Test" begin
             op = Inti.Laplace(; dim=2)
 
             # compute exact solution
-            u = (x) -> x[1]^2 + x[2]^2
-            du = (x, normal) -> dot((2*x[1], 2*x[2]), normal)
-
-            laplacian_u = (x) -> 4.0
-
-            # now create meshes
-            parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
-            meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u)
-            AdaptiveMeshSolver.showMeshes(meshes)
-
-            dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, meshes[2])
-            boundary = Inti.boundary(dom)
-            boundary_mesh = Inti.view(meshes[2], boundary)
-            boundary_quadrature = Inti.Quadrature(boundary_mesh; qorder = 6)
-            # println(boundary_quadrature[])
-            # for q in boundary_quadrature
-            #     println(q)
-            # end
-            # error("HI")
-            # create quadratures + get target points
-            domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
-            boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 6) for mesh in meshes[2:end]]
-            # println(boundary_quadratures[1])
-            target = []
-            multiplicative_terms = []
-            for (i, quadrature) in enumerate(domain_quadratures)
-                points = [(q.coords[1], q.coords[2]) for q in quadrature]
-                append!(target, points)
-            end
-            # target = [(0.5370997288165662, 0.5370997288165662)]
-            # target = [(0.2908767452425044, 0.5754898716685045)]
-            count = 1
-            for (i, quadrature) in enumerate(domain_quadratures)
-                l = length(quadrature)
-                terms = [i >= count && i < count+l ? :inside : :outside for i in 1:length(target)]
-                push!(multiplicative_terms, terms)
-                count += l
-            end
-            multiplicative_terms[1][1] = :outside
-            multiplicative_terms[2][1] = :inside
-            # println(multiplicative_terms)
-            # multiplicative_terms = AdaptiveMeshSolver.getMultiplicativeTerm(target, meshes)
-            potentials = AdaptiveMeshSolver.calculateVolumePotential(domain_quadratures, meshes, laplacian_u, target, multiplicative_terms)
-
-            for quad in boundary_quadratures
-                S, D = Inti.single_double_layer(;
-                    op,
-                    target,
-                    source = quad,
-                    compression = (method = :none, ), 
-                    correction = (method = :dim, target_location = :inside, maxdist = 0.4)
-                )
-
-                γ₀u = map(q -> u(q.coords), quad)
-                γ₁u = map(q -> du(q.coords, q.normal), quad)
-                
-                contribution = S*γ₁u - D*γ₀u
-                potentials += contribution
-            end
-            errors = abs.(potentials - u.(target))
-            replace!(errors, 0.0 => 1e-16) # fix exact errors
-            # println(multiplicative_terms)
-            # println(errors)
-            # println(argmax(errors))
-            # println(target[argmax(errors)])
-            # println(errors[argmax(errors)])
-            # println(errors)
-            # println(errors)
-            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
-            # AdaptiveMeshSolver.showErrorMesh(meshes, target, relative_diffs)
-
-            # @test 0.0 ≈ calculated_u_val atol=2e-13
-        end
-    end
-
-    function test_simple_quadtree_greens_third_identity_sin_term()
-        @testset "Greens Third Identity, u=sin(kπx)sin(kπy), k=0.25, 0.5, 1.0, 2.0, 4.0" begin
-            op = Inti.Laplace(; dim=2)
-
-            # compute exact solution
-            u = (x) -> exp(x[1])*cos(x[2]) + log((x[1]-2.0)^2 + x[2]^2)
+            u = (x) -> x[1]^2 - x[2]^2
             du = (x, normal) -> dot((
-                exp(x[1])*cos(x[2]) + (2*(x[1]-2)) / ((x[1]-2)^2 + x[2]^2),
-                -exp(x[1])*sin(x[2]) + (2*x[2]) / ((x[1]-2)^2 + x[2]^2)
+                2*x[1],
+                -2*x[2]
             ), normal)
             laplacian_u = (x) -> 0.0
 
@@ -139,15 +59,15 @@ using TestItems
         end
     end
 
-    function test_simple_quadtree_greens_third_identity_complex_forcing()
-        @testset "Greens Third Identity, u=sin(kπx)sin(kπy), k=0.25, 0.5, 1.0, 2.0, 4.0" begin
+    function test_layer_potentials_simple_exp()
+        @testset "Layer Potentials: Simple Exponential Test" begin
             op = Inti.Laplace(; dim=2)
 
             # compute exact solution
-            u = (x) -> log(x[1]^2 + x[2]^2)
+            u = (x) -> exp(x[1])*cos(x[2])
             du = (x, normal) -> dot((
-                (2*x[1]) / (x[1]^2 + x[2]^2),
-                (2*x[2]) / (x[1]^2 + x[2]^2)
+                exp(x[1])*cos(x[2]),
+                -exp(x[1])*sin(x[2])
             ), normal)
             laplacian_u = (x) -> 0.0
 
@@ -165,7 +85,6 @@ using TestItems
                 points = [(q.coords[1], q.coords[2]) for q in quadrature]
                 append!(target, points)
             end
-            target = [(0.2908767452425044, 0.5754898716685045)]
             count = 1
             for (i, quadrature) in enumerate(domain_quadratures)
                 l = length(quadrature)
@@ -185,40 +104,131 @@ using TestItems
             γ₀u = map(q -> u(q.coords), quad)
             γ₁u = map(q -> du(q.coords, q.normal), quad)
             potentials = S*γ₁u - D*γ₀u
-            println(S*γ₀u)
-            println(D*γ₁u)
-            println(u.(target))
             errors = abs.(potentials - u.(target))
             replace!(errors, 0.0 => 1e-16) # fix exact errors
-            # AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
+            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
+        end
+    end
+
+    function test_layer_potentials_simple_log()
+        @testset "Layer Potentials: Simple Logarithm Test" begin
+            op = Inti.Laplace(; dim=2)
+
+            a = 2.0
+            b = 0.0
+            # compute exact solution
+            u = (x) -> log((x[1]-a)^2 + (x[2]-b)^2)
+            du = (x, normal) -> dot((
+                (2*(x[1]-a)) / ((x[1]-a)^2 + (x[2]-b)^2),
+                (2*(x[2]-b)) / ((x[1]-a)^2 + (x[2]-b)^2)
+            ), normal)
+            laplacian_u = (x) -> 0.0
+
+            # now create meshes
+            parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
+            meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u)
+            # AdaptiveMeshSolver.showMeshes(meshes)
+
+            # create quadratures + get target points
+            domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
+            boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 6) for mesh in meshes[2:end]]
+            target = []
+            multiplicative_terms = []
+            for (i, quadrature) in enumerate(domain_quadratures)
+                points = [(q.coords[1], q.coords[2]) for q in quadrature]
+                append!(target, points)
+            end
+            count = 1
+            for (i, quadrature) in enumerate(domain_quadratures)
+                l = length(quadrature)
+                terms = [i >= count && i < count+l ? :inside : :outside for i in 1:length(target)]
+                push!(multiplicative_terms, terms)
+                count += l
+            end
+            quad = boundary_quadratures[1]
+            S, D = Inti.single_double_layer(;
+                op,
+                target,
+                source = quad,
+                compression = (method = :none, ), 
+                correction = (method = :dim, target_location = :inside, maxdist = 1.0)
+            )
+
+            γ₀u = map(q -> u(q.coords), quad)
+            γ₁u = map(q -> du(q.coords, q.normal), quad)
+            potentials = S*γ₁u - D*γ₀u
+            errors = abs.(potentials - u.(target))
+            replace!(errors, 0.0 => 1e-16) # fix exact errors
+            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
+        end
+    end
+
+    function test_layer_potentials_origin_log()
+        @testset "Layer Potentials: Origin Logarithm Test" begin
+            op = Inti.Laplace(; dim=2)
+
+            a = 0.0
+            b = 0.0
+            # compute exact solution
+            u = (x) -> log((x[1]-a)^2 + (x[2]-b)^2)
+            du = (x, normal) -> dot((
+                (2*(x[1]-a)) / ((x[1]-a)^2 + (x[2]-b)^2),
+                (2*(x[2]-b)) / ((x[1]-a)^2 + (x[2]-b)^2)
+            ), normal)
+            laplacian_u = (x) -> 0.0
+
+            # now create meshes
+            parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
+            meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u)
+            # AdaptiveMeshSolver.showMeshes(meshes)
+
+            # create quadratures + get target points
+            domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
+            boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 6) for mesh in meshes[2:end]]
+            target = []
+            multiplicative_terms = []
+            for (i, quadrature) in enumerate(domain_quadratures)
+                points = [(q.coords[1], q.coords[2]) for q in quadrature]
+                append!(target, points)
+            end
+            count = 1
+            for (i, quadrature) in enumerate(domain_quadratures)
+                l = length(quadrature)
+                terms = [i >= count && i < count+l ? :inside : :outside for i in 1:length(target)]
+                push!(multiplicative_terms, terms)
+                count += l
+            end
+            quad = boundary_quadratures[1]
+            S, D = Inti.single_double_layer(;
+                op,
+                target,
+                source = quad,
+                compression = (method = :none, ), 
+                correction = (method = :dim, target_location = :inside, maxdist = 1.0)
+            )
+
+            γ₀u = map(q -> u(q.coords), quad)
+            γ₁u = map(q -> du(q.coords, q.normal), quad)
+            potentials = S*γ₁u - D*γ₀u
+            errors = abs.(potentials - u.(target))
+            replace!(errors, 0.0 => 1e-16) # fix exact errors
+            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
         end
     end
 end
 
-@testitem "Greens_Identity: Greens Theorem Area" setup=[Greens_Identity] begin
-    Greens_Identity.test_simple_quadtree_greens_theorem()
+@testitem "Layer Potentials: Simple Test" setup=[Layer_Potential] begin
+    Layer_Potential.test_layer_potentials_simple()
 end
 
-@testitem "Greens_Identity: Greens Third Identity, u=1" setup=[Greens_Identity] begin
-    Greens_Identity.test_simple_quadtree_greens_third_identity_simple_forcing()
+@testitem "Layer Potentials: Simple Exponential Test" setup=[Layer_Potential] begin
+    Layer_Potential.test_layer_potentials_simple_exp()
 end
 
-@testitem "Greens_Identity: Greens Third Identity, u=x" setup=[Greens_Identity] begin
-    Greens_Identity.test_simple_quadtree_greens_third_identity_linear_x()
+@testitem "Layer Potentials: Simple Logarithm Test" setup=[Layer_Potential] begin
+    Layer_Potential.test_layer_potentials_simple_log()
 end
 
-@testitem "Greens_Identity: Greens Third Identity, u=y" setup=[Greens_Identity] begin
-    Greens_Identity.test_simple_quadtree_greens_third_identity_linear_y()
-end
-
-@testitem "Greens_Identity: Greens Third Identity, u=x^2+y^2" setup=[Greens_Identity] begin
-    Greens_Identity.test_simple_quadtree_greens_third_identity_quadratic()
-end
-
-@testitem "Greens_Identity: Greens Third Identity, u=sin(kπx)sin(kπy), k=0.25, 0.5, 1.0, 2.0, 4.0" setup=[Greens_Identity] begin
-    Greens_Identity.test_simple_quadtree_greens_third_identity_sin_term()
-end
-
-@testitem "Greens_Identity: Greens Third Identity, complex u" setup=[Greens_Identity] begin
-    Greens_Identity.test_simple_quadtree_greens_third_identity_complex_forcing()
+@testitem "Layer Potentials: Origin Logarithm Test" setup=[Layer_Potential] begin
+    Layer_Potential.test_layer_potentials_origin_log()
 end

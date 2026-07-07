@@ -1027,7 +1027,7 @@ function separateMesh(meshes, quadrature, point)
             append!(culled_quadrature, quadrature[i*points_per_quad+1:(i+1)*points_per_quad])
         end
     end
-    showSeparatedMesh(meshes, good_elements, culled_quadrature, point)
+    # showSeparatedMesh(meshes, good_elements, culled_quadrature, point)
     return good_elements, culled_quadrature
 end
 
@@ -1063,7 +1063,7 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     quad_mesh = meshes[1]
     greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
     potentials = [0.0 for point in target_points]
-    deg = 40;
+    deg = 5;
     F_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Matrix{Float64}}()
     L_map = Dict{Vector{Float64}, Matrix{Float64}}()
     Correction_map = getCorrectionMap(quad_mesh, 5, u)
@@ -1160,6 +1160,7 @@ function calculateTriangleVolumePotential(quadrature, density, target_points, mu
             # correction = (method = :dim,)
             # correction = (method = :none, ),
         )
+        print(quadrature.mesh)
         # inside_volume_potential_2 = Inti.volume_potential(; 
         #     op, 
         #     target = inside_target_points, 

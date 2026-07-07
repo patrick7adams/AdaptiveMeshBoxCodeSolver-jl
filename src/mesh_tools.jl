@@ -18,6 +18,7 @@ function showMesh(msh)
         figure = (; size = (400, 400)),
     )
     Γ = get_boundary(msh)
+    # Γ = Inti.boundary(Ω)
     if length(keys(Γ)) > 0 # boundary exists
         Γ_msh = @views msh[Γ]
         viz!(Γ_msh; color = :red, segmentsize = 1)
@@ -112,7 +113,8 @@ function showMeshes(meshes)
     )
     for mesh in meshes[2:end]
         strip_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
-        strip_boundary = get_boundary(mesh)
+        # strip_boundary = get_boundary(mesh)
+        strip_boundary = Inti.boundary(strip_dom)
 
         strip_dom_mesh = view(mesh, strip_dom)
         strip_boundary_mesh = view(mesh, strip_boundary)
