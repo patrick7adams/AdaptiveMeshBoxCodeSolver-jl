@@ -5,7 +5,7 @@ function distance(a, b)
     return sqrt((a[1] - b[1])^2 + (a[2] - b[2])^2)
 end
 
-function showMesh(msh)
+function showMesh(msh, points=[])
     println("Showing mesh!!!")
 
     Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
@@ -15,13 +15,17 @@ function showMesh(msh)
         segmentsize = 1,
         showsegments = true,
         axis = (aspect = DataAspect(),),
-        figure = (; size = (400, 400)),
+        figure = (; size = (1000, 1000)),
     )
     Γ = get_boundary(msh)
     # Γ = Inti.boundary(Ω)
     if length(keys(Γ)) > 0 # boundary exists
         Γ_msh = @views msh[Γ]
         viz!(Γ_msh; color = :red, segmentsize = 1)
+    end
+    if length(points) > 0
+        pointset = Meshes.PointSet([Meshes.Point((point[1], point[2])) for point in points])
+        viz!(pointset; color = :red, pointsize = 3)
     end
     display(fig)
 end
@@ -172,7 +176,7 @@ function showEdgeList(edges::Set{Tuple{Tuple{Float64, Float64}, Tuple{Float64, F
         segmentsize = 1,
         showsegments = true,
         axis = (aspect = DataAspect(),),
-        figure = (; size = (500, 400)),
+        figure = (; size = (1000, 1000)),
     )
     for edge in edges
         line = Meshes.Segment(Meshes.Point(edge[1][1], edge[1][2]), Meshes.Point(edge[2][1], edge[2][2]))

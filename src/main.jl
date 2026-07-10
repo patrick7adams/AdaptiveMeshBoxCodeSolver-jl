@@ -698,14 +698,91 @@ function classify_boundary(points, num_points)
     return classifications
 end
 
-function createBoundaryStripMeshes(boundary_associations, internal_points, parametrizations)
+function refinementTriangleStage(triangle, quad_points, func)
+    # takes in a triangle, returns true if triangle should refine, false if not
+    degree = 2
+    c, r = Inti.translation_and_scaling(triangle)
+    d = zeros(length(quad_points), 1)
+    for (i, point) in enumerate(quad_points)
+        d[i] = func(point.coords)
+    end
+    len_vander = Int64((degree+1)*(degree+2) / 2)
+    mat = zeros(length(quad_points), len_vander)
+    degs = [(i, j) for i in 0:degree, j in 0:degree if i+j <= degree]
+    for (i, point) in enumerate(quad_points)
+        pnt = 1/r * (point.coords - c)
+        for (j, deg) in enumerate(degs)
+            mat[i, j] = (1/factorial(deg[1]))*pnt[1]^deg[1] * (1/factorial(deg[2]))*pnt[2]^deg[2]
+        end
+    end
+    println(cond(mat))
+    sum = 0.0
+    coeffs = mat \ d
+    for (deg, coeff) in zip(degs, coeffs)
+        if deg[1]+deg[2] == degree
+            sum += abs(coeff)
+        end
+    end
+    sum /= (2*degree)
+    
+    return sum > 1e-8
+end
+
+function refineTriangles(mesh, quadrature, func)
+    # takes in a mesh, returns the points to add to the Mesh
+    points = Set{Tuple{Float64, Float64}}()
+    num_points_per_quad = 6
+    
+    for (i, elem) in enumerate(Inti.elements(mesh, Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, StaticArraysCore.SVector{2, Float64}}))
+        quad_points = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+        if refinementTriangleStage(elem, quad_points, func)
+            verts = Inti.vertices(elem)
+            point = ((verts[1][1] + verts[2][1] + verts[3][1])/3.0, (verts[1][2] + verts[2][2] + verts[3][2])/3.0)
+            push!(points, point)
+        end
+    end
+    return points
+end
+
+function refineBoundaryStripMeshes(boundary_associations, internal_points, parametrizations, func, maxiter=3)
+    iter = 0
+    boundary_strip_meshes = createBoundaryStripMeshes(boundary_associations, internal_points, parametrizations)
+    all_points = []
+    while iter < maxiter
+        for (j, mesh) in enumerate(boundary_strip_meshes)
+            quadrature = getDomainQuadrature(mesh, 4)
+            points = refineTriangles(mesh, quadrature, func)
+            if iter == 0
+                push!(all_points, points)
+            else
+                union!(all_points[j], points)
+                all_points[j] = points
+            end
+        end
+        for mesh in boundary_strip_meshes
+            showMesh(mesh, all_points[1])
+        end
+        boundary_strip_meshes = createBoundaryStripMeshes(boundary_associations, internal_points, parametrizations, all_points) 
+        iter += 1
+    end
+    error("HI")
+    return boundary_strip_meshes
+end
+
+function createBoundaryStripMeshes(boundary_associations, internal_points, parametrizations, point_lists = [])
     function getCurve(i)
         splines = createSplines(parametrizations[i])
         return gmsh.model.occ.addCurveLoop(splines), splines
     end
 
-    function generateMesh(surf, boundary_splines, linetags)
-        gmsh.model.occ.addPlaneSurface(surf)
+    function generateMesh(surf, boundary_splines, linetags, point_lists, iter)
+        point_tags = Vector{Int64}()
+        if length(point_lists) > 0
+            for point in point_lists[iter]
+                push!(point_tags, gmsh.model.occ.addPoint(point..., 0.0))
+            end
+        end
+        newsurf = gmsh.model.occ.addPlaneSurface(surf)
         gmsh.model.occ.synchronize()
         for tag in linetags
             gmsh.model.mesh.setTransfiniteCurve(tag, 2)
@@ -713,11 +790,16 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
         gmsh.model.addPhysicalGroup(1, boundary_splines, -1, "Boundary")
         gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curvature_size)
         gmsh.model.mesh.removeDuplicateNodes()
+        println("Beginning embed")
+        if length(point_tags) > 0
+            gmsh.model.mesh.embed(0, point_tags, 2, newsurf)
+        end
+        println("done with embed")
         # println("generating scary mesh")
         gmsh.model.mesh.generate(2)
-        # println("done")
+        println("done")
     end
-
+    iter = 1
     meshes = []
     gmsh.clear()
     boundary_splines = Vector{Int32}()
@@ -742,7 +824,8 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             push!(boundary_splines, splines...)
         end
     end
-    generateMesh(surfaces, boundary_splines, linetags)
+    generateMesh(surfaces, boundary_splines, linetags, point_lists, iter)
+    iter += 1
     msh = Inti.import_mesh(; dim = 2)
     push!(meshes, msh)
     gmsh.clear()
@@ -760,7 +843,8 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             push!(boundary_splines, splines...)
         end
 
-        generateMesh([internal_curve_loop, surfaces...], boundary_splines, linetags)
+        generateMesh([internal_curve_loop, surfaces...], boundary_splines, linetags, point_lists, iter)
+        iter += 1
         msh = Inti.import_mesh(; dim = 2)
         push!(meshes, msh)
         gmsh.clear()
@@ -942,7 +1026,7 @@ function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_
         println("Created Internal Boundary")
     end
 
-    boundary_strip_meshes = createBoundaryStripMeshes(point_associations, internal_points, parametrizations)
+    boundary_strip_meshes = refineBoundaryStripMeshes(point_associations, internal_points, parametrizations, forcing_func)
     if verbose
         println("Meshed Boundary Strips")
     end
@@ -964,7 +1048,9 @@ function getDomainQuadrature(mesh, order)
 end
 
 function getBoundaryQuadrature(mesh, order)
-    boundary = get_boundary(mesh)
+    # boundary = get_boundary(mesh)
+    domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+    boundary = Inti.boundary(domain)
     boundary_mesh = Inti.view(mesh, boundary)
     boundary_quadrature = Inti.Quadrature(boundary_mesh; qorder = order)
     return boundary_quadrature
