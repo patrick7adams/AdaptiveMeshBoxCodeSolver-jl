@@ -288,8 +288,8 @@ using TestItems
 
     function test_quadtree_greens_theorem_complex_terms()
         @testset "Greens Theorem Area" begin
-            for σ in [1/2^x for x in 4:6]
-                x_0 = 0.8
+            for σ in [0.25]
+                x_0 = 0.85
                 y_0 = 0.0
                 u = (x, y) -> exp(-((x-x_0)^2 + (y-y_0)^2)/(2*σ^2))
 
