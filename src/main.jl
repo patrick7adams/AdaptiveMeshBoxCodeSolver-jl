@@ -703,7 +703,7 @@ function refinementTriangleStage(triangle, quad_points, func, i)
 
     # I am going to use a higher degree quadrature order (order 14) which maps to an interpolation degree of 8. This tolerance can be lower than expected, but refine this manually lol
 
-    degree = 2
+    degree = 8
     c, r = Inti.translation_and_scaling(triangle)
     d = zeros(length(quad_points), 1)
     for (i, point) in enumerate(quad_points)
@@ -745,12 +745,12 @@ function refineTriangles(mesh, quadrature, func)
     points = Set{Tuple{Float64, Float64}}()
     r_vals = Set{Float64}()
     refines = []
-    num_points_per_quad = 6
+    num_points_per_quad = 45
     for (i, elem) in enumerate(Inti.elements(mesh, Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, StaticArraysCore.SVector{2, Float64}}))
         quad_points = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
         refine, r = refinementTriangleStage(elem, quad_points, func, i)
         push!(refines, refine)
-        if refine > 1e-3
+        if refine > 1e-6
             verts = Inti.vertices(elem)
             center = (round((verts[1][1]+verts[2][1]+verts[3][1])/3.0, digits=8), round((verts[1][2]+verts[2][2]+verts[3][2])/3.0, digits=8))
             # if any(distance(vert, (0.7734375, 0.06875)) < 1e-3 for vert in verts)
@@ -761,8 +761,8 @@ function refineTriangles(mesh, quadrature, func)
             push!(r_vals, r)
         end
     end
-    println("Mean sum: ", sum(refines)/length(refines))
-    println("Mean r val: ", sum(r_vals)/length(r_vals))
+    # println("Mean sum: ", sum(refines)/length(refines))
+    # println("Mean r val: ", sum(r_vals)/length(r_vals))
     return points, r_vals
 end
 
@@ -793,19 +793,18 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             gmsh.model.mesh.generate(2)
             msh = Inti.import_mesh(; dim = 2)
             # then refine this
-            quadrature = getDomainQuadrature(msh, 4)
+            quadrature = getDomainQuadrature(msh, 14)
             points, r_vals = refineTriangles(msh, quadrature, func)
-            println(h)
-            showMesh(msh, points)
-
+            # println(h)
+            # showMesh(msh, points)
             # if no points to refine, break
             if length(points) == 0
                 break
             end
             if iter == 0
-                h = sum(r_vals)/length(r_vals)
+                h = maximum(r_vals)
             else
-                h /= 3
+                h /= 2
             end
             point_tags = []
             for point in points
@@ -817,20 +816,22 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             thresh_field = gmsh.model.mesh.field.add("Threshold")
             gmsh.model.mesh.field.setNumber(thresh_field, "InField", dist_field)
             gmsh.model.mesh.field.setNumber(thresh_field, "SizeMin", h)
-            gmsh.model.mesh.field.setNumber(thresh_field, "SizeMax", 10000.0)
+            gmsh.model.mesh.field.setNumber(thresh_field, "SizeMax", 1.0)
             gmsh.model.mesh.field.setNumber(thresh_field, "DistMin", 0.7*maximum(r_vals))
-            gmsh.model.mesh.field.setNumber(thresh_field, "DistMax", 1.5*maximum(r_vals))
+            gmsh.model.mesh.field.setNumber(thresh_field, "DistMax", 1.1*maximum(r_vals))
             push!(fields, thresh_field)
             min_field = gmsh.model.mesh.field.add("Min")
             gmsh.model.mesh.field.setNumbers(min_field, "FieldsList", fields)
             gmsh.model.mesh.field.setAsBackgroundMesh(min_field)
             iter += 1
         end
-        gmsh.clear()
-        println(msh)
-        error("HI")
+        # gmsh.clear()
+        # showMesh(msh)
+        # println(msh)
+        # error("HI")
         return msh
     end
+
     iter = 1
     meshes = []
     gmsh.clear()
@@ -856,7 +857,10 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             push!(boundary_splines, splines...)
         end
     end
-    push!(meshes, generateMesh(surfaces, boundary_splines, linetags, func))
+    generateMesh(surfaces, boundary_splines, linetags, func)
+    msh = Inti.import_mesh(; dim = 2)
+    push!(meshes, msh)
+    gmsh.clear()
     for (i, association) in enumerate(internal_associations)
         boundary_splines = Vector{Int32}()
         surfaces = Vector{Int32}()
@@ -871,12 +875,15 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             push!(boundary_splines, splines...)
         end
 
-        push!(meshes, generateMesh([internal_curve_loop, surfaces...], boundary_splines, linetags, func))
+        generateMesh([internal_curve_loop, surfaces...], boundary_splines, linetags, func)
+        msh = Inti.import_mesh(; dim = 2)
+        push!(meshes, msh)
+        gmsh.clear()
     end
-    print(meshes)
-    for mesh in meshes
-        showMesh(mesh)
-    end
+    # print(meshes)
+    # for mesh in meshes
+    #     showMesh(mesh)
+    # end
 
     return meshes
 end
@@ -1074,8 +1081,9 @@ end
 
 function getBoundaryQuadrature(mesh, order)
     # boundary = get_boundary(mesh)
-    domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
-    boundary = Inti.boundary(domain)
+    # domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+    # boundary = Inti.boundary(domain)
+    boundary = get_boundary(mesh)
     boundary_mesh = Inti.view(mesh, boundary)
     boundary_quadrature = Inti.Quadrature(boundary_mesh; qorder = order)
     return boundary_quadrature

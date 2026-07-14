@@ -59,6 +59,7 @@ using TestItems
 
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
             meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, forcing_function)
+            AdaptiveMeshSolver.showMeshes(meshes)
 
             domain_quads = []
             boundary_quads = []
@@ -288,7 +289,7 @@ using TestItems
 
     function test_quadtree_greens_theorem_complex_terms()
         @testset "Greens Theorem Area" begin
-            for σ in [0.25]
+            for σ in [0.025]
                 x_0 = 0.85
                 y_0 = 0.0
                 u = (x, y) -> exp(-((x-x_0)^2 + (y-y_0)^2)/(2*σ^2))
