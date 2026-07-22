@@ -12,7 +12,7 @@
 p = 12 # deg of interpolating polys for function refinement
 len = 2^30# size of default quadtree
 contain_tol = 1e-15
-curvature_size = 30
+curvature_size = 200
 
 mesh_len = -1.0
 num_boundaries = -1
@@ -698,138 +698,146 @@ function classify_boundary(points, num_points)
     return classifications
 end
 
-function refinementTriangleStage(triangle, quad_points, func, i)
+function refinementTriangleStage(triangle, quad_points, func, Qw, R, degs, Iorder)
     # takes in a triangle, returns true if triangle should refine, false if not
-
-    # I am going to use a higher degree quadrature order (order 14) which maps to an interpolation degree of 8. This tolerance can be lower than expected, but refine this manually lol
-
-    degree = 8
     c, r = Inti.translation_and_scaling(triangle)
-    d = zeros(length(quad_points), 1)
+    d = func.(Inti.coords.(quad_points))
+    # w = Inti.weight.(quad_points)
+    mat = zeros(length(quad_points), length(quad_points))
     for (i, point) in enumerate(quad_points)
-        d[i] = func(point.coords)
-    end
-    len_vander = Int64((degree+2)*(degree+3) / 2)
-    mat = zeros(length(quad_points), len_vander)
-    degs = [(i, j) for i in 0:degree, j in 0:degree if i+j <= degree]
-    for (i, point) in enumerate(quad_points)
-        pnt = 1/r * (point.coords - c)
+        pnt = 1/r * (point.coords .- c)
         for (j, deg) in enumerate(degs)
             mat[i, j] = (1/factorial(deg[1]))*pnt[1]^deg[1] * (1/factorial(deg[2]))*pnt[2]^deg[2]
         end
     end
-    # println(cond(mat))
-    sum = 0.0
     coeffs = mat \ d
+    # coeffs = R * (Qw' * (sqrt.(w) .* d))
+    # coeffs = Qw' * d
+    
+    good_coeffs = []
     for (deg, coeff) in zip(degs, coeffs)
-        if deg[1]+deg[2] == degree
-            sum += abs(coeff)
+        if deg[1]+deg[2] == Iorder
+            push!(good_coeffs, coeff)
         end
     end
-    sum /= (2*(degree+1))
+    rel_sum = norm(good_coeffs) / max(norm(coeffs), 1e-12)
+    abs_sum = norm(good_coeffs)
 
-    # if i == 1
-    #     println("---------")
-    #     println(triangle)
-    #     println(r)
-    #     println(sum)
-    #     println(coeffs)
-    #     println(degs)
+    return abs_sum > 1e-1 && rel_sum > 1e-1
+end
+
+function generateMesh(surf, boundary_splines, linetags, func, Iorder, maxiter = 5)
+    qorder = Inti.TRIANGLE_VR_IORDER_TO_QORDER[Iorder]
+    num_points_per_quad = Inti.TRIANGLE_VR_ORDER_TO_NPTS[qorder]
+    qrule = Inti.TRIANGLE_VR_QRULES[num_points_per_quad]
+
+    size_field = -1
+
+    degs = sort([(i, j) for i in 0:Iorder, j in 0:Iorder if i+j <= Iorder], by = sum)
+    len_vander = Int64((Iorder+1)*(Iorder+2) / 2)
+
+    # create reference vandermonde matrix for the given qrule
+    mat = zeros(num_points_per_quad, len_vander)
+    for (i, node) in enumerate(qrule)
+        pnt = node[1]
+        for (j, deg) in enumerate(degs)
+            mat[i, j] = (1/factorial(deg[1]))*pnt[1]^deg[1] * (1/factorial(deg[2]))*pnt[2]^deg[2]
+        end
+    end
+
+    A = sqrt.([node[2] for node in qrule]) .* mat
+    F = qr(A)
+    Qw = Matrix(F.Q)[:, 1:size(mat, 2)]
+    R = Matrix(F.R)
+
+    gmsh.model.occ.addPlaneSurface(surf)
+    gmsh.model.occ.synchronize()
+    # for tag in linetags
+    #     gmsh.model.mesh.setTransfiniteCurve(tag, 2)
     # end
+    gmsh.model.addPhysicalGroup(1, boundary_splines, -1, "Boundary")
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curvature_size)
+    gmsh.model.mesh.removeDuplicateNodes()
 
-    return sum, r
-end
+    for iter in 1:maxiter
+        gmsh.model.mesh.clear()
+        gmsh.model.mesh.generate(2)
+        mesh = Inti.import_mesh(; dim=2)
 
-function refineTriangles(mesh, quadrature, func)
-    # takes in a mesh, returns the points to add to the Mesh
-    points = Set{Tuple{Float64, Float64}}()
-    r_vals = Set{Float64}()
-    refines = []
-    num_points_per_quad = 45
-    for (i, elem) in enumerate(Inti.elements(mesh, Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, StaticArraysCore.SVector{2, Float64}}))
-        quad_points = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-        refine, r = refinementTriangleStage(elem, quad_points, func, i)
-        push!(refines, refine)
-        if refine > 1e-6
-            verts = Inti.vertices(elem)
-            center = (round((verts[1][1]+verts[2][1]+verts[3][1])/3.0, digits=8), round((verts[1][2]+verts[2][2]+verts[3][2])/3.0, digits=8))
-            # if any(distance(vert, (0.7734375, 0.06875)) < 1e-3 for vert in verts)
-            #     println(elem)
-            #     println(Inti.translation_and_scaling(elem))
-            # end
-            push!(points, center)
-            push!(r_vals, r)
+        gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+        gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+        gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
+
+        dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
+        dom_mesh = view(mesh, dom)
+        quadrature = Inti.Quadrature(dom_mesh; qorder = qorder)
+        
+        c1, c2 = 0, 0
+        vertex_dict = Dict()
+        data = []
+
+        triangles = Inti.elements(mesh, Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, StaticArraysCore.SVector{2, Float64}})
+        for (i, elem) in enumerate(triangles)
+            v1, v2, v3 = ((round(v[1], digits=8), round(v[2], digits=8)) for v in Inti.vertices(elem))
+            quad_points = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+            if iter > 1
+                center = Inti.center(elem)
+                target, _ = gmsh.view.probe(size_field, center[1], center[2], 0.0)
+                size = target[1]
+            else
+                size = maximum((norm(v1.-v2), norm(v2.-v3), norm(v1.-v3)))
+            end
+
+            if refinementTriangleStage(elem, quad_points, func, Qw, R, degs, Iorder)
+                size /= 2.0
+                c2 += 1
+            else
+                c1 += 1
+            end
+
+            for v in (v1, v2, v3)
+                if haskey(vertex_dict, v)
+                    push!(vertex_dict[v], size)
+                else
+                    vertex_dict[v] = [size]
+                end
+            end
         end
+
+        if c2 == 0
+            break
+        end
+
+        filtered_size_dict = Dict()
+        for (k, v) in vertex_dict
+            newsum = minimum(v)
+            filtered_size_dict[k] = newsum
+        end
+
+        for (i, elem) in enumerate(triangles)
+            v1, v2, v3 = ((round(v[1], digits=8), round(v[2], digits=8)) for v in Inti.vertices(elem))
+            size1 = filtered_size_dict[v1]
+            size2 = filtered_size_dict[v2]
+            size3 = filtered_size_dict[v3]
+            push!(data, v1[1], v2[1], v3[1], v1[2], v2[2], v3[2], 0.0, 0.0, 0.0, size1, size2, size3)
+        end
+
+        size_field = gmsh.view.add("mesh size field")
+        gmsh.view.addListData(size_field, "ST", length(triangles), data)
+
+        bg_field = gmsh.model.mesh.field.add("PostView")
+        gmsh.model.mesh.field.setNumber(bg_field, "ViewTag", size_field)
+        gmsh.model.mesh.field.setAsBackgroundMesh(bg_field)
     end
-    # println("Mean sum: ", sum(refines)/length(refines))
-    # println("Mean r val: ", sum(r_vals)/length(r_vals))
-    return points, r_vals
+
+    mesh = Inti.import_mesh(; dim=2)
+    return mesh
 end
 
-function createBoundaryStripMeshes(boundary_associations, internal_points, parametrizations, func)
+function createBoundaryStripMeshes(boundary_associations, internal_points, parametrizations, func, Iorder)
     function getCurve(i)
         splines = createSplines(parametrizations[i])
         return gmsh.model.occ.addCurveLoop(splines), splines
-    end
-
-    function generateMesh(surf, boundary_splines, linetags, func, maxiter = 5)
-        iter = 0
-        h = -1
-        fields = []
-        msh = nothing
-
-        newsurf = gmsh.model.occ.addPlaneSurface(surf)
-        gmsh.model.occ.synchronize()
-        # for tag in linetags
-        #     gmsh.model.mesh.setTransfiniteCurve(tag, 2)
-        # end
-        gmsh.model.addPhysicalGroup(1, boundary_splines, -1, "Boundary")
-        gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", curvature_size)
-        gmsh.model.mesh.removeDuplicateNodes()
-
-        while iter < maxiter
-            # first generate mesh, clearing old mesh stuff
-            gmsh.model.mesh.clear()
-            gmsh.model.mesh.generate(2)
-            msh = Inti.import_mesh(; dim = 2)
-            # then refine this
-            quadrature = getDomainQuadrature(msh, 14)
-            points, r_vals = refineTriangles(msh, quadrature, func)
-            # println(h)
-            # showMesh(msh, points)
-            # if no points to refine, break
-            if length(points) == 0
-                break
-            end
-            if iter == 0
-                h = maximum(r_vals)
-            else
-                h /= 2
-            end
-            point_tags = []
-            for point in points
-                push!(point_tags, gmsh.model.occ.addPoint(point..., 0.0))
-            end
-            gmsh.model.occ.synchronize()
-            dist_field = gmsh.model.mesh.field.add("Distance")
-            gmsh.model.mesh.field.setNumbers(dist_field, "PointsList", point_tags)
-            thresh_field = gmsh.model.mesh.field.add("Threshold")
-            gmsh.model.mesh.field.setNumber(thresh_field, "InField", dist_field)
-            gmsh.model.mesh.field.setNumber(thresh_field, "SizeMin", h)
-            gmsh.model.mesh.field.setNumber(thresh_field, "SizeMax", 1.0)
-            gmsh.model.mesh.field.setNumber(thresh_field, "DistMin", 0.7*maximum(r_vals))
-            gmsh.model.mesh.field.setNumber(thresh_field, "DistMax", 1.1*maximum(r_vals))
-            push!(fields, thresh_field)
-            min_field = gmsh.model.mesh.field.add("Min")
-            gmsh.model.mesh.field.setNumbers(min_field, "FieldsList", fields)
-            gmsh.model.mesh.field.setAsBackgroundMesh(min_field)
-            iter += 1
-        end
-        # gmsh.clear()
-        # showMesh(msh)
-        # println(msh)
-        # error("HI")
-        return msh
     end
 
     iter = 1
@@ -857,8 +865,7 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             push!(boundary_splines, splines...)
         end
     end
-    generateMesh(surfaces, boundary_splines, linetags, func)
-    msh = Inti.import_mesh(; dim = 2)
+    msh = generateMesh(surfaces, boundary_splines, linetags, func, Iorder)
     push!(meshes, msh)
     gmsh.clear()
     for (i, association) in enumerate(internal_associations)
@@ -874,9 +881,7 @@ function createBoundaryStripMeshes(boundary_associations, internal_points, param
             push!(surfaces, curve)
             push!(boundary_splines, splines...)
         end
-
-        generateMesh([internal_curve_loop, surfaces...], boundary_splines, linetags, func)
-        msh = Inti.import_mesh(; dim = 2)
+        msh = generateMesh([internal_curve_loop, surfaces...], boundary_splines, linetags, func, Iorder, maxiter = 15)
         push!(meshes, msh)
         gmsh.clear()
     end
@@ -1026,7 +1031,7 @@ function getQuadFromPoint(tree::P4estTypes.Tree, point::Tuple{Float64, Float64})
     end
 end
 
-function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_func::Function, verbose=false)
+function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_func::Function, verbose=false, Iorder=4)
     # Creates the meshes describing the boundary region and the quadtree
     # important note: the first function in parametrizations is assumed to be the boundary, the others are assumed to be holes
     gmsh.initialize()
@@ -1058,7 +1063,7 @@ function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_
         println("Created Internal Boundary")
     end
 
-    boundary_strip_meshes = createBoundaryStripMeshes(point_associations, internal_points, parametrizations, forcing_func)
+    boundary_strip_meshes = createBoundaryStripMeshes(point_associations, internal_points, parametrizations, forcing_func, Iorder)
     if verbose
         println("Meshed Boundary Strips")
     end
@@ -1080,10 +1085,9 @@ function getDomainQuadrature(mesh, order)
 end
 
 function getBoundaryQuadrature(mesh, order)
-    # boundary = get_boundary(mesh)
+    boundary = get_boundary(mesh)
     # domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
     # boundary = Inti.boundary(domain)
-    boundary = get_boundary(mesh)
     boundary_mesh = Inti.view(mesh, boundary)
     boundary_quadrature = Inti.Quadrature(boundary_mesh; qorder = order)
     return boundary_quadrature
@@ -1191,11 +1195,21 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     P = ClassicalOrthogonalPolynomials.Legendre()
     
     x = ClassicalOrthogonalPolynomials.grid(P, deg)
-    
+    F_cache_hits = 0
+    L_cache_hits = 0
+    total_calcs = 0
+    F_calc_time = 0
+    L_calc_time = 0
+    separate_mesh_time = 0
+    @show length(target_points)
+    true_start_time = time()
     for (i, point) in enumerate(target_points)
-        println(Float64(i) / Float64(length(target_points)))
+        # println(Float64(i) / Float64(length(target_points)))
+        start_time = time()
         singular_quads, far_quadrature = separateMesh(meshes, quadrature, point)
+        separate_mesh_time += time() - start_time
         for elem in singular_quads
+            total_calcs += 1
             # first create F
             coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
             
@@ -1203,11 +1217,14 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
             h = coords[3][1] - coords[1][1]
             if haskey(F_map, elem)
                 F = F_map[elem]
+                F_cache_hits += 1
             else
+                start_time = time()
                 ux = generatePoints(u, x, bounds)'
                 tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
                 F = (tmp_F * ux)
                 F_map[elem] = F
+                F_calc_time += time() - start_time
             end
             # now create L by first mapping point to the [[-1, 1], [-1, 1]] grid
             x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
@@ -1216,9 +1233,12 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
             mapped_target_point += [1e-16, 1e-16]
             if haskey(L_map, mapped_target_point)
                 L = L_map[mapped_target_point]
+                L_cache_hits += 1
             else
+                start_time = time()
                 L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(mapped_target_point), deg))
                 L_map[mapped_target_point] = L
+                L_calc_time += time() - start_time
             end
             I = dot(L, F)
             term = I*h^2 / (8*pi) - log(2/h)/(2*pi)*Correction_map[elem]
@@ -1232,6 +1252,7 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
             #     println("Relative target point position: ", mapped_target_point)
             # end
         end
+
      
         domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
         potentials[i] += sum(domain_func(q)*q.weight for q in far_quadrature)
@@ -1241,6 +1262,14 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
         # end
         # println(sum(domain_func(q)*q.weight for q in far_quadrature))
     end
+    full_run_time = time() - true_start_time
+    @show full_run_time
+    @show F_calc_time
+    @show L_calc_time
+    @show total_calcs
+    @show F_cache_hits
+    @show L_cache_hits
+    @show separate_mesh_time
     return potentials
 end
 
@@ -1269,55 +1298,28 @@ function calculateTriangleVolumePotential(quadrature, density, target_points, mu
     potentials = [0.0 for x in target_points]
     laplacian_points = [density(q.coords) for q in quadrature]
 
+    compression_method = (method = :fmm, tol=1e-12)
+
     if length(inside_target_points) > 0
         inside_volume_potential = Inti.volume_potential(; 
             op, 
             target = inside_target_points, 
             source = quadrature,
-            compression = (method = :none, ),
+            compression = compression_method,
             correction = (method = :dim, maxdist=max_dist, target_location=:inside), 
-            # correction = (method = :dim,)
-            # correction = (method = :none, ),
         )
-        print(quadrature.mesh)
-        # inside_volume_potential_2 = Inti.volume_potential(; 
-        #     op, 
-        #     target = inside_target_points, 
-        #     source = quadrature,
-        #     compression = (method = :none, ),
-        #     # correction = (method = :dim, maxdist=max_dist, target_location=:inside), 
-        #     # correction = (method = :dim,)
-        #     correction = (method = :none, ),
-        # )
-        # # println(quadrature.etype2qtags)
-        # inside_volume_potential -= inside_volume_potential_2
-        # # inside_volume_potential = inside_volume_potential_2
-        
-        
-
-        # inside_volume_potential_mat = Matrix(inside_volume_potential)
-        # for (i, q) in enumerate(quadrature)
-        #     if inside_volume_potential_mat[i] != 0.0
-        #         println(inside_volume_potential_mat[i], " | ", q.coords)
-        #     end
-        #     # println(q.coords + " | " + q.weight + " | " + inside_volume_potential[])
-        # end
-
         inside_potentials = inside_volume_potential * laplacian_points
         for i in 1:length(inside_potentials)
             potentials[inside_indices[i]] = -inside_potentials[i] 
         end
-        
     end
     if length(boundary_target_points) > 0
         boundary_volume_potential = Inti.volume_potential(; 
             op, 
             target = boundary_target_points, 
             source = quadrature,
-            compression = (method = :none, ),
+            compression = compression_method,
             correction = (method = :dim, maxdist=max_dist, target_location=:on), 
-            # correction = (method = :dim,)
-            # correction = (method = :none, ),
         )
         boundary_potentials = boundary_volume_potential * laplacian_points
         for i in 1:length(boundary_potentials)
@@ -1329,10 +1331,8 @@ function calculateTriangleVolumePotential(quadrature, density, target_points, mu
             op, 
             target = outside_target_points, 
             source = quadrature,
-            compression = (method = :none, ),
+            compression = compression_method,
             correction = (method = :dim, maxdist=max_dist, target_location=:outside), 
-            # correction = (method = :dim,)
-            # correction = (method = :none, ),
         )
         outside_potentials = outside_volume_potential * laplacian_points
         for i in 1:length(outside_potentials)
@@ -1343,13 +1343,19 @@ function calculateTriangleVolumePotential(quadrature, density, target_points, mu
     return potentials
 end
 
-function calculateVolumePotential(quadratures, meshes, u, target_points, multiplicative_terms)
+function calculateVolumePotential(quadratures, meshes, u, target_points, multiplicative_terms, verbose=false)
     # calculates the volume potential over the quadratures. Assumes that the first quadrature passed represents the quadtree.
     target_potentials = calculateQuadVolumePotential(meshes, quadratures[1], u, target_points)
+    if verbose
+        println("Finished calculating quad volume potential")
+    end
     for (i, quadrature) in enumerate(quadratures[2:end])
         tmp_target_potentials = calculateTriangleVolumePotential(quadrature, u, target_points, multiplicative_terms[i+1])
         for (j, potential) in enumerate(tmp_target_potentials)
             target_potentials[j] += potential
+        end
+        if verbose
+            println("Finished calculating triangle volume potential for boundary ", i)
         end
     end
     return target_potentials

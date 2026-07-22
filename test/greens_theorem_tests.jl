@@ -327,6 +327,7 @@ using TestItems
                 # println(domain_integral)
                 # println(boundary_integral)
                 println(calculated_u_val)
+                println(meshes[2])
                 # @test 0.0 ≈ calculated_u_val atol=1e-14       
             end
         end
