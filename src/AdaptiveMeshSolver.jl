@@ -10,6 +10,7 @@ using Colorfy
 using FMM2D
 using IterativeSolvers, LinearAlgebra
 using ClassicalOrthogonalPolynomials, MultivariateSingularIntegrals
+using NearestNeighbors
 
 include("mesh_tools.jl")
 

@@ -1150,11 +1150,28 @@ function separateMesh(meshes, quadrature, point)
     return good_elements, culled_quadrature
 end
 
-function getCorrectionMap(quad_mesh, order, u)
+function separateMesh(meshes, quadrature, point)
+    # what should separateMesh do? it should at the minimum get a list of the near-singular elements for a given target point
+    # but is this organization right?
+
+    # this can really just be a few map calls: target point -> element containing target point, and element -> nearby elements.
+    # what do we do with the external points though? they don't have an associated element, we still need to find the nearby elements, though.
+    # potentially: kdtree to get all nearby target points, and then a target point -> element map applied to these, union the set.
+    # I like this idea, it's just not the smartest still it seems.
+
+    # is there any way to use the quadtree here? there probably is a way to get the nearby quads but this still will require a point -> element map
+    # is it possible to flip the loop? like loop through the elements, and then the target points.
+    # then for a given element, we use the kdtree to get nearby target points. For these target points, compute the quad contribution to them.
+    # how is this better/worse than what we have now?
+    # this is much more in tune with the kdtree/dict caching idea; I will just be able to return the points themselves that are near the
+    # quad, instead of getting the elements each time. 
+    # 
+
+function getCorrectionMap(quad_mesh, quadrature, u)
     Correction_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Float64}()
 
-    quadrature = Inti.Quadrature(quad_mesh; qorder=order)
-    num_points_per_quad = Int64(ceil((order + 1) / 2))^2
+    num_elems = length([x for x in Inti.elements(quad_mesh)])
+    num_points_per_quad = Int64(length(quadrature) / num_elems)
     num_quads = Int64(length(quadrature) / num_points_per_quad)
     mid_point_coord = Int64(ceil(num_points_per_quad/2))
     for quad in Inti.elements(quad_mesh)
@@ -1178,6 +1195,72 @@ function getCorrectionMap(quad_mesh, order, u)
     return Correction_map
 end
 
+# function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
+#     quad_mesh = meshes[1]
+#     greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
+#     potentials = [0.0 for point in target_points]
+#     deg = 5;
+#     F_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Matrix{Float64}}()
+#     L_map = Dict{Vector{Float64}, Matrix{Float64}}()
+#     Correction_map = getCorrectionMap(quad_mesh, 5, u)
+
+#     # first set up legendre polynomials for singular evaluations
+#     P = ClassicalOrthogonalPolynomials.Legendre()
+    
+#     x = ClassicalOrthogonalPolynomials.grid(P, deg)
+    
+#     for (i, point) in enumerate(target_points)
+#         println(Float64(i) / Float64(length(target_points)))
+#         singular_quads, far_quadrature = separateMesh(meshes, quadrature, point)
+#         for elem in singular_quads
+#             # first create F
+#             coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+            
+#             bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
+#             h = coords[3][1] - coords[1][1]
+#             if haskey(F_map, elem)
+#                 F = F_map[elem]
+#             else
+#                 ux = generatePoints(u, x, bounds)'
+#                 tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
+#                 F = (tmp_F * ux)
+#                 F_map[elem] = F
+#             end
+#             # now create L by first mapping point to the [[-1, 1], [-1, 1]] grid
+#             x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
+            
+#             mapped_target_point = [round(-1.0+2/h*x_dist, digits=12), round(-1.0+2/h*y_dist, digits=12)]
+#             mapped_target_point += [1e-16, 1e-16]
+#             if haskey(L_map, mapped_target_point)
+#                 L = L_map[mapped_target_point]
+#             else
+#                 L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(mapped_target_point), deg))
+#                 L_map[mapped_target_point] = L
+#             end
+#             I = dot(L, F)
+#             term = I*h^2 / (8*pi) - log(2/h)/(2*pi)*Correction_map[elem]
+#             potentials[i] += term
+
+#             # if elem in singular_quads
+#             #     println("--------")
+#             #     println("Coords: ", coords)
+#             #     println("Quad Contribution: ", term)
+#             #     println("Density integral over quad: ", I)
+#             #     println("Relative target point position: ", mapped_target_point)
+#             # end
+#         end
+     
+#         domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
+#         potentials[i] += sum(domain_func(q)*q.weight for q in far_quadrature)
+
+#         # for elem in Inti.elements(quad_mesh)
+#         #     println(Inti.vertices(elem))
+#         # end
+#         # println(sum(domain_func(q)*q.weight for q in far_quadrature))
+#     end
+#     return potentials
+# end
+
 function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     quad_mesh = meshes[1]
     greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
@@ -1185,31 +1268,52 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     deg = 5;
     F_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Matrix{Float64}}()
     L_map = Dict{Vector{Float64}, Matrix{Float64}}()
-    Correction_map = getCorrectionMap(quad_mesh, 5, u)
+    Correction_map = getCorrectionMap(quad_mesh, quadrature, u)
 
     # first set up legendre polynomials for singular evaluations
     P = ClassicalOrthogonalPolynomials.Legendre()
     
     x = ClassicalOrthogonalPolynomials.grid(P, deg)
-    
-    for (i, point) in enumerate(target_points)
-        println(Float64(i) / Float64(length(target_points)))
-        singular_quads, far_quadrature = separateMesh(meshes, quadrature, point)
-        for elem in singular_quads
-            # first create F
-            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
-            
-            bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
-            h = coords[3][1] - coords[1][1]
-            if haskey(F_map, elem)
-                F = F_map[elem]
-            else
-                ux = generatePoints(u, x, bounds)'
-                tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
-                F = (tmp_F * ux)
-                F_map[elem] = F
-            end
-            # now create L by first mapping point to the [[-1, 1], [-1, 1]] grid
+
+    # construct kdtree
+    tree = NearestNeighbors.KDTree(target_points)
+
+    # map quad mesh element -> iterable of quadrature points over that element
+    elem_to_quad_points = Dict()
+    num_points_per_quad = Int64(ceil((order + 1) / 2))^2
+    for (i, elem) in enumerate(Inti.elements(quad_mesh))
+        elem_to_quad_points[elem] = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+    end
+
+    for elem in Inti.elements(quad_mesh)
+        # loop through elements, get target points within range of center
+        coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+        bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
+        h = coords[3][1] - coords[1][1]
+        center = ((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)
+        near_target_points = NearestNeighbors.inrange(tree, center, h*1.25)
+        elem_quadrature_points = elem_to_quad_points[elem]
+        if haskey(F_map, elem)
+            F = F_map[elem]
+        else
+            ux = generatePoints(u, x, bounds)'
+            tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
+            F = (tmp_F * ux)
+            F_map[elem] = F
+        end
+
+        # add in all potentials
+        for (i, point) in enumerate(target_points)
+            domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
+            potentials[i] += Inti.integrate(domain_func, quadrature)
+        end
+        
+        correction_term = log(2/h)/(2*pi)*Correction_map[elem]
+
+        # now calculate both singular method and nonsingular method quad contributions for each of these points
+        for point_idx in near_target_points
+            point = target_points[point_idx]
+            # first singular method
             x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
             
             mapped_target_point = [round(-1.0+2/h*x_dist, digits=12), round(-1.0+2/h*y_dist, digits=12)]
@@ -1221,25 +1325,13 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
                 L_map[mapped_target_point] = L
             end
             I = dot(L, F)
-            term = I*h^2 / (8*pi) - log(2/h)/(2*pi)*Correction_map[elem]
-            potentials[i] += term
+            term = I*h^2 / (8*pi) - correction_term
+            potentials[point_idx] += term
 
-            # if elem in singular_quads
-            #     println("--------")
-            #     println("Coords: ", coords)
-            #     println("Quad Contribution: ", term)
-            #     println("Density integral over quad: ", I)
-            #     println("Relative target point position: ", mapped_target_point)
-            # end
+            # now just subtract this quad's normal quadrature contribution from the estimated potential
+            domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
+            potentials[point_idx] -= sum(domain_func(q)*q.weight for q in elem_quadrature_points)
         end
-     
-        domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
-        potentials[i] += sum(domain_func(q)*q.weight for q in far_quadrature)
-
-        # for elem in Inti.elements(quad_mesh)
-        #     println(Inti.vertices(elem))
-        # end
-        # println(sum(domain_func(q)*q.weight for q in far_quadrature))
     end
     return potentials
 end
