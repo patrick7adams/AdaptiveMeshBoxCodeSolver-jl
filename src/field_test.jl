@@ -105,9 +105,46 @@ function getBoundaryPoints(parametrization::Function, num_points::Int64)::Vector
     return boundary
 end
 
+function translation_and_scaling(el::Inti.LagrangeTriangle)
+    vertices = el.vals[1:3]
+    l1 = norm(vertices[1] - vertices[2])
+    l2 = norm(vertices[2] - vertices[3])
+    l3 = norm(vertices[3] - vertices[1])
+    if ((l1^2 + l2^2 >= l3^2) && (l2^2 + l3^2 >= l1^2) && (l3^2 + l1^2 > l2^2))
+        acuteright = true
+    else
+        acuteright = false
+    end
+
+    if acuteright
+        # Compute the circumcenter and circumradius
+        Bp = vertices[2] - vertices[1]
+        Cp = vertices[3] - vertices[1]
+        Dp = 2 * (Bp[1] * Cp[2] - Bp[2] * Cp[1])
+        Upx = 1 / Dp * (Cp[2] * (Bp[1]^2 + Bp[2]^2) - Bp[2] * (Cp[1]^2 + Cp[2]^2))
+        Upy = 1 / Dp * (Bp[1] * (Cp[1]^2 + Cp[2]^2) - Cp[1] * (Bp[1]^2 + Bp[2]^2))
+        Up = SVector{2}(Upx, Upy)
+        r = norm(Up)
+        c = Up + vertices[1]
+    else
+        if (l1 >= l2) && (l1 >= l3)
+            c = (vertices[1] + vertices[2]) / 2
+            r = l1 / 2
+        elseif (l2 >= l1) && (l2 >= l3)
+            c = (vertices[2] + vertices[3]) / 2
+            r = l2 / 2
+        else
+            c = (vertices[1] + vertices[3]) / 2
+            r = l3 / 2
+        end
+    end
+    return c, r
+end
+
 function refinementTriangleStage(triangle, quad_points, func, degree)
     # takes in a triangle, returns true if triangle should refine, false if not
-    c, r = Inti.translation_and_scaling(triangle)
+    # c, r = Inti.translation_and_scaling(triangle)
+    c, r = translation_and_scaling(triangle)
 
     d = func.(Inti.coords.(quad_points))
     mat = zeros(num_points_per_quad, len_vander)
@@ -127,6 +164,16 @@ function refinementTriangleStage(triangle, quad_points, func, degree)
     end
     rel_sum = norm(good_coeffs) / max(norm(coeffs), 1e-12)
     abs_sum = norm(good_coeffs)
+    if triangle == Inti.LagrangeElement{Inti.ReferenceSimplex{2}, 3, SVector{2, Float64}}(SVector{2, Float64}[[-0.08570188488096438, 0.016586422460625295], [-0.08973315785630873, 0.012554927151873826], [-0.08442082395404617, 0.008774070863537256]])
+        println(coeffs)
+        println(mat)
+        for (i, point) in enumerate(quad_points)
+            println(1/r * (point.coords .- c))
+            println(point.coords .- c)
+        end
+        @show r
+        @show c
+    end
 
     return abs_sum > 1e-1 && rel_sum > 1e-1, cond(mat)
 end
@@ -138,7 +185,7 @@ end
 #     return R \ (Qw' * (sqrt.(w) .* d))
 # end
 
-σ=0.05
+σ=0.01
 x_0 = 0.0
 y_0 = 0.0
 u = (x, y) -> exp(-((x-x_0)^2 + (y-y_0)^2)/(2*σ^2))
@@ -191,7 +238,7 @@ gmsh.model.mesh.removeDuplicateNodes()
 size_field = -1
 gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 30)
 
-for iter in 1:8
+for iter in 1:15
     gmsh.model.mesh.clear()
     gmsh.model.mesh.generate(2)
     mesh = Inti.import_mesh(; dim=2)
@@ -236,8 +283,6 @@ for iter in 1:8
             end
         end
     end
-    @show c1+c2
-    @show c2
     if c2 == 0
         break
     end
@@ -255,6 +300,9 @@ for iter in 1:8
         push!(data, v1[1], v2[1], v3[1], v1[2], v2[2], v3[2], 0.0, 0.0, 0.0, size1, size2, size3)
     end
 
+    @show triangles[argmax(conds)]
+    @show maximum(conds)
+
     global size_field = gmsh.view.add("mesh size field")
     gmsh.view.addListData(size_field, "ST", length(triangles), data)
 
@@ -263,37 +311,51 @@ for iter in 1:8
     gmsh.model.mesh.field.setAsBackgroundMesh(bg_field)
 
     cfs = zeros(len_vander, 1)
+    point = SVector{2, Float64}(0.0, -0.18)
+    println("-----------------------------------------------------------------")
+    counter = 0
     for (i, elem) in enumerate(triangles)
-        quad_points = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-        d = func.(Inti.coords.(quad_points))
-        w = Inti.weight.(quad_points)
-        c, r = Inti.translation_and_scaling(elem)
-
-        d = func.(Inti.coords.(quad_points))
-        mat = zeros(num_points_per_quad, len_vander)
-        for (i, point) in enumerate(quad_points)
-            pnt = 1/r * (point.coords .- c)
-            for (j, deg) in enumerate(degs)
-                mat[i, j] = (1/factorial(deg[1]))*pnt[1]^deg[1] * (1/factorial(deg[2]))*pnt[2]^deg[2]
+        verts = Inti.vertices(elem)
+        if any(norm(vert - point) < 0.025 for vert in verts)
+            counter += 1
+            if counter > 10
+                break
             end
+            quad_points = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+            d = func.(Inti.coords.(quad_points))
+            w = Inti.weight.(quad_points)
+            c, r = Inti.translation_and_scaling(elem)
+
+            d = func.(Inti.coords.(quad_points))
+            mat = zeros(num_points_per_quad, len_vander)
+            for (i, point) in enumerate(quad_points)
+                pnt = 1/r * (point.coords .- c)
+                for (j, deg) in enumerate(degs)
+                    mat[i, j] = (1/factorial(deg[1]))*pnt[1]^deg[1] * (1/factorial(deg[2]))*pnt[2]^deg[2]
+                end
+            end
+            cfs += mat \ d
+            # @show verts
+            # @show r
+            for deg in 0:degree
+                sum = 0
+                for i in 1:length(degs)
+                    if degs[i][1]+degs[i][2] == deg
+                        sum += cfs[i]
+                    end
+                end
+                sum /= deg+1
+                # println(deg, " : ", sum)
+            end
+            # println("------------------")
         end
-        cfs += mat \ d
     end
     cfs = cfs ./ length(triangles)
-    for deg in 0:degree
-        sum = 0
-        for i in 1:length(degs)
-            if degs[i][1]+degs[i][2] == deg
-                sum += cfs[i]
-            end
-        end
-        sum /= deg+1
-        println(deg, " : ", sum)
-    end
-    @show cfs
-    @show degs
-    @show maximum(conds)
-    @show median(conds)
+    
+    # @show cfs
+    # @show degs
+    # @show maximum(conds)
+    # @show median(conds)
 end
 mesh = Inti.import_mesh(; dim=2)
 showMesh(mesh)

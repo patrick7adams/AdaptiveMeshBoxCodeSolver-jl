@@ -162,13 +162,14 @@ using TestItems
 
             domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
             boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 6) for mesh in meshes[2:end]]
-            AdaptiveMeshSolver.showMeshes(meshes)
+            # AdaptiveMeshSolver.showMeshes(meshes)
+            # AdaptiveMeshSolver.showMesh(meshes[1], [[-0.5805008802525881, -0.7257491197474122]])
             # error("HI")
 
-            target = []
+            target = Vector{SVector{2, Float64}}()
             multiplicative_terms = []
             for (i, quadrature) in enumerate(domain_quadratures)
-                points = [(q.coords[1], q.coords[2]) for q in quadrature]
+                points = [SVector{2, Float64}(q.coords[1], q.coords[2]) for q in quadrature]
                 append!(target, points)
             end
             
@@ -202,7 +203,7 @@ using TestItems
             max_error = maximum(errors)
             @show L2_error
             @show max_error
-            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
+            # AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
         end
     end
 end
