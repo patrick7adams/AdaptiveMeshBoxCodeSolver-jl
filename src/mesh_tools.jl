@@ -56,7 +56,7 @@ function showErrorMesh(meshes, quadrature_points, errors)
     colors = log10.(errors)
     # println(minimum(errors))
     # println(maximum(errors))
-    viz!(ax, quadrature_pointset; color = colors, colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), pointsize = 8, alpha = 1.0, showpoints = true)
+    viz!(ax, quadrature_pointset; color = colors, colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), pointsize = 3, alpha = 1.0, showpoints = true)
 
     Colorbar(fig[1, 2]; colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), label = "log_{10} of error")
 

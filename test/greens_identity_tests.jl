@@ -51,8 +51,8 @@ using TestItems
                 push!(multiplicative_terms, terms)
                 count += l
             end
-            multiplicative_terms[1][1] = :outside
-            multiplicative_terms[2][1] = :inside
+            # multiplicative_terms[1][1] = :outside
+            # multiplicative_terms[2][1] = :inside
             # println(multiplicative_terms)
             # multiplicative_terms = AdaptiveMeshSolver.getMultiplicativeTerm(target, meshes)
             potentials = AdaptiveMeshSolver.calculateVolumePotential(domain_quadratures, meshes, laplacian_u, target, multiplicative_terms)
@@ -81,6 +81,7 @@ using TestItems
             # println(errors[argmax(errors)])
             # println(errors)
             # println(errors)
+            # println(maximum(errors))
             AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
             # AdaptiveMeshSolver.showErrorMesh(meshes, target, relative_diffs)
 
@@ -141,31 +142,37 @@ using TestItems
 
     function test_simple_quadtree_greens_third_identity_complex_forcing()
         @testset "Greens Third Identity, u=sin(kπx)sin(kπy), k=0.25, 0.5, 1.0, 2.0, 4.0" begin
+            println("Starting test!")
+            σ = 0.05
             op = Inti.Laplace(; dim=2)
+            x_0 = 0.0
+            y_0 = 0.85
 
             # compute exact solution
-            u = (x) -> log(x[1]^2 + x[2]^2)
-            du = (x, normal) -> dot((
-                (2*x[1]) / (x[1]^2 + x[2]^2),
-                (2*x[2]) / (x[1]^2 + x[2]^2)
-            ), normal)
-            laplacian_u = (x) -> 0.0
+            u = (x) -> exp(-((x[1]-x_0)^2 + (x[2]-y_0)^2)/(2*σ^2))
+            du = (x, normal) -> dot((-(x[1]-x_0)/σ^2 * u(x), -(x[2]-y_0)/σ^2 * u(x)), normal)
+
+            laplacian_u = (x) -> (((x[1]-x_0)^2 + (x[2]-y_0)^2)/σ^4 - 2 / σ^2) * u(x)
 
             # now create meshes
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
-            meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u)
-            # AdaptiveMeshSolver.showMeshes(meshes)
+            meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u, false)
+            println("Generated mesh!")
+            # error("bruh")
 
-            # create quadratures + get target points
             domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
             boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 6) for mesh in meshes[2:end]]
-            target = []
+            # AdaptiveMeshSolver.showMeshes(meshes)
+            # AdaptiveMeshSolver.showMesh(meshes[1], [[-0.5805008802525881, -0.7257491197474122]])
+            # error("HI")
+
+            target = Vector{SVector{2, Float64}}()
             multiplicative_terms = []
             for (i, quadrature) in enumerate(domain_quadratures)
-                points = [(q.coords[1], q.coords[2]) for q in quadrature]
+                points = [SVector{2, Float64}(q.coords[1], q.coords[2]) for q in quadrature]
                 append!(target, points)
             end
-            target = [(0.2908767452425044, 0.5754898716685045)]
+            
             count = 1
             for (i, quadrature) in enumerate(domain_quadratures)
                 l = length(quadrature)
@@ -173,23 +180,29 @@ using TestItems
                 push!(multiplicative_terms, terms)
                 count += l
             end
-            quad = boundary_quadratures[1]
-            S, D = Inti.single_double_layer(;
-                op,
-                target,
-                source = quad,
-                compression = (method = :none, ), 
-                correction = (method = :dim, target_location = :inside, maxdist = 1.0)
-            )
+            potentials = AdaptiveMeshSolver.calculateVolumePotential(domain_quadratures, meshes, laplacian_u, target, multiplicative_terms, true)
 
-            γ₀u = map(q -> u(q.coords), quad)
-            γ₁u = map(q -> du(q.coords, q.normal), quad)
-            potentials = S*γ₁u - D*γ₀u
-            println(S*γ₀u)
-            println(D*γ₁u)
-            println(u.(target))
+            for quad in boundary_quadratures
+                S, D = Inti.single_double_layer(;
+                    op,
+                    target,
+                    source = quad,
+                    compression = (method = :none, ), 
+                    correction = (method = :dim, target_location = :inside, maxdist = 1.0)
+                )
+
+                γ₀u = map(q -> u(q.coords), quad)
+                γ₁u = map(q -> du(q.coords, q.normal), quad)
+                
+                contribution = S*γ₁u - D*γ₀u
+                potentials += contribution
+            end
             errors = abs.(potentials - u.(target))
-            replace!(errors, 0.0 => 1e-16) # fix exact errors
+            n = length(errors)
+            L2_error = sqrt(1/n * sum(errors.^2))
+            max_error = maximum(errors)
+            @show L2_error
+            @show max_error
             # AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
         end
     end
