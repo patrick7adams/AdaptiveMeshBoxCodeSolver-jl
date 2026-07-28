@@ -13,6 +13,7 @@ using IterativeSolvers, LinearAlgebra
 using Statistics
 using Serialization
 using ClassicalOrthogonalPolynomials, MultivariateSingularIntegrals
+using NearestNeighbors
 
 include("mesh_tools.jl")
 
