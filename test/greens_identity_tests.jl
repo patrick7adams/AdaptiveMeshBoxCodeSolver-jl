@@ -146,7 +146,7 @@ using TestItems
             σ = 0.05
             op = Inti.Laplace(; dim=2)
             x_0 = 0.0
-            y_0 = 0.85
+            y_0 = 0.0
 
             # compute exact solution
             u = (x) -> exp(-((x[1]-x_0)^2 + (x[2]-y_0)^2)/(2*σ^2))
@@ -160,12 +160,13 @@ using TestItems
             println("Generated mesh!")
             # error("bruh")
 
-            domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 4) for mesh in meshes]
-            boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 6) for mesh in meshes[2:end]]
+            domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(mesh, 17) for mesh in meshes]
+            boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 12) for mesh in meshes[2:end]]
             # AdaptiveMeshSolver.showMeshes(meshes)
-            # AdaptiveMeshSolver.showMesh(meshes[1], [[-0.5805008802525881, -0.7257491197474122]])
+            # println(meshes[2])
+            # AdaptiveMeshSolver.showMesh(meshes[1], [[-0.06681294012629407, 0.6722495598737059], [-0.06015625000000005, 0.6617187500000001]])
             # error("HI")
-
+            
             target = Vector{SVector{2, Float64}}()
             multiplicative_terms = []
             for (i, quadrature) in enumerate(domain_quadratures)
@@ -203,7 +204,7 @@ using TestItems
             max_error = maximum(errors)
             @show L2_error
             @show max_error
-            # AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
+            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
         end
     end
 end

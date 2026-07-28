@@ -11,6 +11,7 @@ using Colorfy
 using FMM2D
 using IterativeSolvers, LinearAlgebra
 using Statistics
+using Serialization
 using ClassicalOrthogonalPolynomials, MultivariateSingularIntegrals
 
 include("mesh_tools.jl")

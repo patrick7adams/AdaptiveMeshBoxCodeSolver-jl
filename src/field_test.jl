@@ -13,54 +13,18 @@ function showMesh(msh, points=[])
 
     Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
     Ω_msh = @views msh[Ω]
-    fig = viz(
-        Ω_msh;
-        segmentsize = 1,
-        showsegments = true,
-        axis = (aspect = DataAspect(),),
-        figure = (; size = (1000, 1000)),
-    )
+    # fig = Inti.plot(Ω_msh; linewidth=3)
+    fig, ax, plt = plot(Ω_msh; strokewidth = 1, axis = (aspect = DataAspect(),), figure=(; size = (1000, 1000)))
     Γ = Inti.boundary(Ω)
     # Γ = Inti.boundary(Ω)
     if length(keys(Γ)) > 0 # boundary exists
         Γ_msh = @views msh[Γ]
-        viz!(Γ_msh; color = :red, segmentsize = 1)
+        plot!(Γ_msh; color = :red, strokewidth = 1)
     end
-    if length(points) > 0
-        pointset = Meshes.PointSet([Meshes.Point((point[1], point[2])) for point in points])
-        viz!(pointset; color = :red, pointsize = 3)
-    end
-    display(fig)
-end
-
-function showMeshHeatmap(msh, view)
-    println("Showing heatmap mesh!!!")
-    Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
-    Ω_msh = @views msh[Ω]
-    quadrature = Inti.Quadrature(Ω_msh; qorder = 17)
-    println(length(quadrature))
-
-    all_items = viz(
-        Ω_msh;
-        segmentsize = 1,
-        showsegments = true,
-        axis = (aspect = DataAspect(),),
-        figure = (; size = (1000, 1000)),
-    )
-    fig, ax, plt = all_items
-    Γ = Inti.boundary(Ω)
-    # Γ = Inti.boundary(Ω)
-    if length(keys(Γ)) > 0 # boundary exists
-        Γ_msh = @views msh[Γ]
-        viz!(Γ_msh; color = :red, segmentsize = 1)
-    end
-    quadrature_pointset = Meshes.PointSet([Meshes.Point(q.coords...) for q in quadrature])
-    colors = log10.([gmsh.view.probe(view, q.coords[1], q.coords[2], 0.0)[1][1] for q in quadrature])
-    # println(minimum(errors))
-    # println(maximum(errors))
-    viz!(ax, quadrature_pointset; color = colors, colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), interpolate=true, showpoints=true, pointsize=8)
-    Colorbar(fig[1, 2]; colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), label = "log_{10} of error")
-
+    # if length(points) > 0
+    #     pointset = Meshes.PointSet([Meshes.Point((point[1], point[2])) for point in points])
+    #     viz!(pointset; color = :red, pointsize = 3)
+    # end
     display(fig)
 end
 
@@ -105,46 +69,10 @@ function getBoundaryPoints(parametrization::Function, num_points::Int64)::Vector
     return boundary
 end
 
-function translation_and_scaling(el::Inti.LagrangeTriangle)
-    vertices = el.vals[1:3]
-    l1 = norm(vertices[1] - vertices[2])
-    l2 = norm(vertices[2] - vertices[3])
-    l3 = norm(vertices[3] - vertices[1])
-    if ((l1^2 + l2^2 >= l3^2) && (l2^2 + l3^2 >= l1^2) && (l3^2 + l1^2 > l2^2))
-        acuteright = true
-    else
-        acuteright = false
-    end
-
-    if acuteright
-        # Compute the circumcenter and circumradius
-        Bp = vertices[2] - vertices[1]
-        Cp = vertices[3] - vertices[1]
-        Dp = 2 * (Bp[1] * Cp[2] - Bp[2] * Cp[1])
-        Upx = 1 / Dp * (Cp[2] * (Bp[1]^2 + Bp[2]^2) - Bp[2] * (Cp[1]^2 + Cp[2]^2))
-        Upy = 1 / Dp * (Bp[1] * (Cp[1]^2 + Cp[2]^2) - Cp[1] * (Bp[1]^2 + Bp[2]^2))
-        Up = SVector{2}(Upx, Upy)
-        r = norm(Up)
-        c = Up + vertices[1]
-    else
-        if (l1 >= l2) && (l1 >= l3)
-            c = (vertices[1] + vertices[2]) / 2
-            r = l1 / 2
-        elseif (l2 >= l1) && (l2 >= l3)
-            c = (vertices[2] + vertices[3]) / 2
-            r = l2 / 2
-        else
-            c = (vertices[1] + vertices[3]) / 2
-            r = l3 / 2
-        end
-    end
-    return c, r
-end
-
 function refinementTriangleStage(triangle, quad_points, func, degree)
     # takes in a triangle, returns true if triangle should refine, false if not
     # c, r = Inti.translation_and_scaling(triangle)
-    c, r = translation_and_scaling(triangle)
+    c, r = Inti.translation_and_scaling(triangle)
 
     d = func.(Inti.coords.(quad_points))
     mat = zeros(num_points_per_quad, len_vander)
@@ -185,7 +113,7 @@ end
 #     return R \ (Qw' * (sqrt.(w) .* d))
 # end
 
-σ=0.01
+σ=0.05
 x_0 = 0.0
 y_0 = 0.0
 u = (x, y) -> exp(-((x-x_0)^2 + (y-y_0)^2)/(2*σ^2))
@@ -199,7 +127,7 @@ end
 
 # START CODE #
 
-degree = 4 # can be 0 through 10
+degree = 2 # can be 0 through 10
 qorder = Inti.TRIANGLE_VR_IORDER_TO_QORDER[degree]
 num_points_per_quad = Inti.TRIANGLE_VR_ORDER_TO_NPTS[qorder]
 @show num_points_per_quad
