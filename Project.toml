@@ -32,6 +32,7 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [compat]
 ClassicalOrthogonalPolynomials = "0.15.17"
+Inti = "0.2.1"
 MultivariateSingularIntegrals = "0.1.0"
 NearestNeighbors = "0.4.29"
 QuadGK = "2.11.3"
