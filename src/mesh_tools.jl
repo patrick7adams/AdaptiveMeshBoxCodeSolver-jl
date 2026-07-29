@@ -10,22 +10,18 @@ function showMesh(msh, points=[])
 
     Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
     Ω_msh = @views msh[Ω]
-    fig = viz(
-        Ω_msh;
-        segmentsize = 1,
-        showsegments = true,
-        axis = (aspect = DataAspect(),),
-        figure = (; size = (1000, 1000)),
-    )
-    Γ = get_boundary(msh)
+    # fig = Inti.plot(Ω_msh; linewidth=3)
+    fig, ax, plt = plot(Ω_msh; strokewidth = 1, axis = (aspect = DataAspect(),), figure=(; size = (1000, 1000)))
+    Γ = Inti.boundary(Ω)
     # Γ = Inti.boundary(Ω)
     if length(keys(Γ)) > 0 # boundary exists
         Γ_msh = @views msh[Γ]
-        viz!(Γ_msh; color = :red, segmentsize = 1)
+        plot!(Γ_msh; color = :red, strokewidth = 1)
     end
     if length(points) > 0
-        pointset = Meshes.PointSet([Meshes.Point((point[1], point[2])) for point in points])
-        viz!(pointset; color = :red, pointsize = 3)
+        # pointset = Meshes.PointSet([Meshes.Point((point[1], point[2])) for point in points])
+        pointset = Point2f.(points)
+        scatter!(pointset; color = :red)
     end
     display(fig)
 end
@@ -34,14 +30,24 @@ function showErrorMesh(meshes, quadrature_points, errors)
     println("Showing error mesh!!!")
     quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, meshes[1])
     quadtree_mesh = view(meshes[1], quadtree_dom)
-    all_items = viz(
-        quadtree_mesh;
-        segmentsize = 1,
-        showsegments = true,
-        axis = (aspect = DataAspect(),),
-        figure = (; size = (1000, 1000)),
+
+    quadrature_pointset = Point2f.(quadrature_points)
+    xs, ys = ([q[i] for q in quadrature_points] for i in 1:2)
+    colors = log10.(errors)
+
+    fig, ax, plt = tricontourf(
+        xs, ys, colors; 
+        colormap = :inferno, 
+        levels = 20, 
+        axis = (aspect = DataAspect(),), 
+        figure = (; size = (1000, 1000))
     )
-    fig, ax, plt = all_items
+    Colorbar(fig[1, 2]; colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), label = "log_{10} of error")
+    
+    display(fig)
+
+    plot!(quadtree_mesh; strokewidth = 1, color = (:gray, 0.0), shading = NoShading)
+
     for mesh in meshes[2:end]
         strip_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
         strip_boundary = get_boundary(mesh)
@@ -49,16 +55,9 @@ function showErrorMesh(meshes, quadrature_points, errors)
         strip_dom_mesh = view(mesh, strip_dom)
         strip_boundary_mesh = view(mesh, strip_boundary)
 
-        viz!(strip_dom_mesh; showsegments = true)
-        viz!(strip_boundary_mesh; color = :red, segmentsize = 1)
+        plot!(strip_dom_mesh; strokewidth = 1, color = (:gray, 0.0), shading = NoShading)
+        plot!(strip_boundary_mesh; color = :red, strokewidth = 1)
     end
-    quadrature_pointset = Meshes.PointSet(quadrature_points)
-    colors = log10.(errors)
-    # println(minimum(errors))
-    # println(maximum(errors))
-    viz!(ax, quadrature_pointset; color = colors, colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), pointsize = 3, alpha = 1.0, showpoints = true)
-
-    Colorbar(fig[1, 2]; colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), label = "log_{10} of error")
 
     display(fig)
 end
@@ -108,13 +107,7 @@ function showMeshes(meshes)
     println("Showing combined mesh!!!")
     quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, meshes[1])
     quadtree_mesh = view(meshes[1], quadtree_dom)
-    fig = viz(
-        quadtree_mesh;
-        segmentsize = 1,
-        showsegments = true,
-        axis = (aspect = DataAspect(),),
-        figure = (; size = (1000, 1000)),
-    )
+    fig, ax, plt = plot(quadtree_mesh; strokewidth = 1, axis = (aspect = DataAspect(),), figure=(; size = (1000, 1000)))
     for mesh in meshes[2:end]
         strip_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
         # strip_boundary = get_boundary(mesh)
@@ -123,8 +116,8 @@ function showMeshes(meshes)
         strip_dom_mesh = view(mesh, strip_dom)
         strip_boundary_mesh = view(mesh, strip_boundary)
 
-        viz!(strip_dom_mesh; showsegments = true)
-        viz!(strip_boundary_mesh; color = :red, segmentsize = 1)
+        plot!(strip_dom_mesh; strokewidth = 1)
+        plot!(strip_boundary_mesh; color = :red, strokewidth = 1)
     end
     display(fig)
 end

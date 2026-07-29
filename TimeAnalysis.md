@@ -19,3 +19,6 @@ Now, a table describing the number and percent of cache hits:
 The time spent calculating L matrices can probably be cut down.
 
 The main time gain will undoubtedly be fixing the separateMesh function.
+
+L2_error = 1.0277781782000638e-7
+max_error = 1.4458866886002397e-6
