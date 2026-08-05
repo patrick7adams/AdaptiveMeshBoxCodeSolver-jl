@@ -33,7 +33,7 @@ function showErrorMesh(meshes, quadrature_points, errors)
 
     quadrature_pointset = Point2f.(quadrature_points)
     xs, ys = ([q[i] for q in quadrature_points] for i in 1:2)
-    colors = log10.(errors)
+    colors = log10.(errors .+ 1e-16)
 
     fig, ax, plt = tricontourf(
         xs, ys, colors; 

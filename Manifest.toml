@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "3145e9407f3f06ef56f006b14e78564fb3ff14fa"
+project_hash = "f5040fba8da58afc3af863b3699543059ea80fdc"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -56,7 +56,7 @@ weakdeps = ["SparseArrays", "StaticArrays"]
     AdaptStaticArraysExt = "StaticArrays"
 
 [[deps.AdaptiveMeshSolver]]
-deps = ["CairoMakie", "ClassicalOrthogonalPolynomials", "Colorfy", "FMM2D", "FastChebInterp", "GeometryBasics", "Gmsh", "Inti", "IterativeSolvers", "LinearAlgebra", "MPI", "MPIPreferences", "Meshes", "MultivariateSingularIntegrals", "NearestNeighbors", "P4estTypes", "PolygonAlgorithms", "Polynomials", "QuadGK", "Revise", "StaticArrays", "Statistics", "Test", "TestItemRunner", "TestItems"]
+deps = ["CairoMakie", "ClassicalOrthogonalPolynomials", "Colorfy", "FMM2D", "FastChebInterp", "GeometryBasics", "Gmsh", "Inti", "IterativeSolvers", "LinearAlgebra", "MPI", "MPIPreferences", "Meshes", "MultivariateSingularIntegrals", "NearestNeighbors", "P4estTypes", "PolygonAlgorithms", "Polynomials", "QuadGK", "Revise", "Serialization", "StaticArrays", "Statistics", "Test", "TestItemRunner", "TestItems"]
 path = "."
 uuid = "d3ca8f58-bbeb-49e8-886a-577531abe6b9"
 version = "0.1.0"

@@ -33,7 +33,7 @@ struct geo_dom_data
     PARENT_DOM::NTuple{max_num_boundaries, Int32}
 end
 
-tol = 1e-13
+tol = 1e-14
 
 function treeToCoords(x, y)
     # right now just converts to unit square. change later lol
@@ -56,6 +56,7 @@ function ResolvedSourceCheby(Q, f, tol)
         E += abs(c[i, c_size]) + abs(c[c_size, i])
     end
     if E / (2p) < tol
+    # if E < tol
         true
     else
         false
@@ -1179,6 +1180,7 @@ function getRelativeTargetPoints(order, deg)
                 push!(ring_points, point)
             end
         end
+        # @show ring_points
         # println("--------------------------------------------")
         return ring_points
     end
@@ -1192,6 +1194,7 @@ function getRelativeTargetPoints(order, deg)
     # size 0.5x: all quads 0h, 0.5h, 1h away
     # size 0.25x: all quads 0.5h away
     q_points = Inti.qcoords(Inti._qrule_for_reference_shape(Inti.ReferenceSquare(), order))
+    # @show q_points
     quad_points = []
     all_points = [
         getRingPoints(q_points, 4, 2),
@@ -1205,6 +1208,7 @@ function getRelativeTargetPoints(order, deg)
         getRingPoints(q_points, 0.5, 0.5),
         getRingPoints(q_points, 0.5, 0),
         getRingPoints(q_points, 0.25, 0.5),
+        getRingPoints(q_points, 0.25, 0.75),
         getRingPoints(q_points, 0.5, 1.5),
     ]
     # println(all_points)
@@ -1226,7 +1230,7 @@ end
 
 function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     start_time = time()
-    deg = 5
+    deg = 16
     if isfile("L_map.jls")
         L_map = Serialization.deserialize("L_map.jls")
     else
@@ -1248,12 +1252,22 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     for (i, elem) in enumerate(Inti.elements(quad_mesh))
         elem_to_quad_points[elem] = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
     end
+    # quadrature_u = 
+    sources = stack(Inti.coords.(quadrature))
+    charges = reshape(stack([q.weight*u(q.coords) for q in quadrature]), 1, :)
+    targets = stack(target_points[length(quadrature)+1:end])
 
-    for (i, point) in enumerate(target_points)
-        domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
-        # potentials[i] += Inti.integrate(domain_func, quadrature[:i])
-        potentials[i] += sum(domain_func(q)*q.weight for (j, q) in enumerate(quadrature) if j != i)
-    end
+    fmm_vals = FMM2D.rfmm2d(;
+        eps = 1e-14, # will change this later
+        sources = sources,
+        charges = charges,
+        targets = targets,
+        pg=1,
+        pgt=1,
+        nd=1
+    )
+    potentials = vcat(fmm_vals.pot, fmm_vals.pottarg) ./ (2pi)
+    time_1, time_2 = 0.0, 0.0
     total_count, not_found_count = 0, 0
     total_arr = []
     not_found_arr = []
@@ -1269,7 +1283,7 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
         bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
         h = coords[3][1] - coords[1][1]
         center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
-        near_target_points = NearestNeighbors.inrange(tree, center, h*1.50)[1]
+        near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
         elem_quadrature_points = elem_to_quad_points[elem]
         ux = generatePoints(u, x, bounds)'
         tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
@@ -1283,7 +1297,7 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
             
             point = target_points[point_idx]
 
-            # # TMP remove all points outside of quads
+            # TMP remove all points outside of quads
             # point_in_quads = false
             # for elem in Inti.elements(quad_mesh)
             #     verts = Inti.vertices(elem)
@@ -1294,7 +1308,7 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
             # if !point_in_quads
             #     continue
             # end
-            
+            singular_time = time()
             # first singular method
             x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
             
@@ -1305,9 +1319,17 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
                 L = L_map[mapped_target_point]
             else
                 not_found_arr[i] += 1
-                L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(mapped_target_point), deg))
+                L = Float64.(MultivariateSingularIntegrals.newtoniansquare(mapped_target_point, deg))
             end
-                
+            time_1 += time() - singular_time
+            # L = nothing
+            # try
+            #     L = L_map[mapped_target_point]
+            # catch err
+            #     @show point
+            #     @show center
+            # end
+            rest_time = time()
             I = dot(L, F)
             term = I*h^2 / (8*pi) - correction_term
             potentials[point_idx] += term
@@ -1315,6 +1337,7 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
             domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
             # don't subtract the singular node tho, that screws stuff up. 
             potentials[point_idx] -= sum(domain_func(q)*q.weight for q in elem_quadrature_points if norm(q.coords - point) > 1e-12)
+            time_2 = time() - rest_time
         end
     end
     # for (not_found, total) in zip(not_found_arr, total_arr)
@@ -1325,6 +1348,8 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     end_time = time() - start_time
     @show end_time
     @show length(target_points) / end_time
+    @show time_1
+    @show time_2
     return potentials
 end
 
@@ -1353,7 +1378,7 @@ function calculateTriangleVolumePotential(quadrature, density, target_points, mu
     potentials = [0.0 for x in target_points]
     laplacian_points = [density(q.coords) for q in quadrature]
 
-    compression_method = (method = :fmm, tol=1e-12)
+    compression_method = (method = :fmm, tol=1e-14)
 
     if length(inside_target_points) > 0
         inside_volume_potential = Inti.volume_potential(; 
@@ -1414,6 +1439,10 @@ function calculateVolumePotential(quadratures, meshes, u, target_points, multipl
         end
     end
     return target_potentials
+end
+
+function adaptive_volume_potential(; op, source::Inti.Quadrature, compression, correction)
+
 end
 
 # TODO
