@@ -1374,6 +1374,7 @@ function calculateTriangleVolumePotential(quadrature, density, target_points, mu
             push!(outside_indices, i)
         end
     end
+    @show length(boundary_target_points)
     max_dist = 0.2
     potentials = [0.0 for x in target_points]
     laplacian_points = [density(q.coords) for q in quadrature]
@@ -1441,7 +1442,22 @@ function calculateVolumePotential(quadratures, meshes, u, target_points, multipl
     return target_potentials
 end
 
+
+
 function adaptive_volume_potential(; op, source::Inti.Quadrature, compression, correction)
+    # right now assuming source = target and op = 2D laplacian
+    # returns a linear map that evaluates like M * f = ϕ, 
+
+    # additionally this needs to be where we precompute everything: the fmm with no charges, N, the various inside/outside operators, etc.
+    # this should be an integral operator
+    
+
+    function apply_adaptive_vol_pot(source_f_vals)
+        # takes in the source f vals, returns the potentials at all source f vals
+        # sketch:
+        #  1. apply FMM operator (built for this quadrature already) to source_f_vals to get far field contributions
+        #  2. Apply linear map N to source_f_vals to get near-singular corrections
+        #  3. Additionally, apply triangle volume potential operators to 
 
 end
 

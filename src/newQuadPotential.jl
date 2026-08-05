@@ -73,3 +73,14 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     end
     return potentials
 end
+
+using PolynomialBases
+using FastChebInterp
+p = 16
+leg_basis = PolynomialBases.GaussLegendre(p)
+cheb_basis = chebpoints((p, p), [-1, -1], [1, 1])
+cheb_nodes = [x[1] for x in cheb_basis[:, 1]]
+w = PolynomialBases.barycentric_weights(cheb_nodes)
+P = PolynomialBases.interpolation_matrix(leg_basis.nodes, cheb_nodes, w)
+@show P
+@show kron(P, P)

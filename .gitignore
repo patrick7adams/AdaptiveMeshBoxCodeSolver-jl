@@ -5,3 +5,4 @@ flake.lock
 .direnv
 *.cov
 .envrc
+Manifest.toml
