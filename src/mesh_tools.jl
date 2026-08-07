@@ -29,7 +29,8 @@ end
 function showErrorMesh(meshes, quadrature_points, errors)
     println("Showing error mesh!!!")
     quadtree_dom = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, meshes[1])
-    quadtree_mesh = view(meshes[1], quadtree_dom)
+    # quadtree_mesh = view(meshes[1], quadtree_dom)
+    quadtree_mesh = @views meshes[1][quadtree_dom]
 
     quadrature_pointset = Point2f.(quadrature_points)
     xs, ys = ([q[i] for q in quadrature_points] for i in 1:2)

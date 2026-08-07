@@ -1078,7 +1078,7 @@ function createQuadtreeMesh(parametrizations::Vector{Vector{Function}}, forcing_
 end
 
 # maybe have two functions? one for domain integrals, one for boundary integrals
-function getDomainQuadrature(mesh, order)
+function getDomainQuadrature(mesh::Inti.AbstractMesh{N, T}, order::Int) where {N, T}
     domain = Inti.Domain((e) -> Inti.geometric_dimension(e) == 2, mesh)
     domain_mesh = Inti.view(mesh, domain)
     domain_quadrature = Inti.Quadrature(domain_mesh; qorder = order)
@@ -1220,21 +1220,28 @@ function getRelativeTargetPoints(order, deg)
     end
     L_map = Dict{Vector{Float64}, Matrix{Float64}}()
     
+    leg_basis = PolynomialBases.GaussLegendre(deg)
+    cheb_basis = chebpoints((order, order), [-1, -1], [1, 1])
+    cheb_nodes = [x[1] for x in cheb_basis[:, 1]]
+    w = PolynomialBases.barycentric_weights(cheb_nodes)
+    P = PolynomialBases.interpolation_matrix(leg_basis.nodes, cheb_nodes, w)
+
     for point in point_set
         L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
-        L_map[point] = L
+        L_map[point] = transpose(P)*L*P
     end
-    Serialization.serialize("L_map.jls", L_map)
+    Serialization.serialize("L_map_", order, "_", deg, ".jls", L_map)
     return L_map
 end
 
 function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     start_time = time()
     deg = 16
-    if isfile("L_map.jls")
+    order = 17
+    if isfile("L_map_", order, "_", deg, ".jls")
         L_map = Serialization.deserialize("L_map.jls")
     else
-        L_map = getRelativeTargetPoints(17, deg)
+        L_map = getRelativeTargetPoints(order, deg)
     end
     quad_mesh = meshes[1]
     greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
@@ -1256,7 +1263,6 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     sources = stack(Inti.coords.(quadrature))
     charges = reshape(stack([q.weight*u(q.coords) for q in quadrature]), 1, :)
     targets = stack(target_points[length(quadrature)+1:end])
-
     fmm_vals = FMM2D.rfmm2d(;
         eps = 1e-14, # will change this later
         sources = sources,
@@ -1266,6 +1272,7 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
         pgt=1,
         nd=1
     )
+    error("HI")
     potentials = vcat(fmm_vals.pot, fmm_vals.pottarg) ./ (2pi)
     time_1, time_2 = 0.0, 0.0
     total_count, not_found_count = 0, 0
@@ -1374,7 +1381,6 @@ function calculateTriangleVolumePotential(quadrature, density, target_points, mu
             push!(outside_indices, i)
         end
     end
-    @show length(boundary_target_points)
     max_dist = 0.2
     potentials = [0.0 for x in target_points]
     laplacian_points = [density(q.coords) for q in quadrature]
@@ -1442,15 +1448,58 @@ function calculateVolumePotential(quadratures, meshes, u, target_points, multipl
     return target_potentials
 end
 
+# I think what we need to do is create an operator that is a struct under the hood, an extension of the integral operator:
+# storing:
+#  - FMM operator
+#  - N operator
+#  - 
 
+struct AdaptiveQuadrature{N, T} <: AbstractVector{Inti.Quadrature{N, T}}
+    quadratures::Vector{Inti.Quadrature{N, T}}
+    quad_mesh::Inti.Mesh{N, T}
+    target_points::Vector{SVector{N, T}}
+    kdtree::NearestNeighbors.KDTree
+end
 
-function adaptive_volume_potential(; op, source::Inti.Quadrature, compression, correction)
+Base.size(AQ::AdaptiveQuadrature{N, T}) where {N, T} = size(AQ.quadratures)
+Base.length(AQ::AdaptiveQuadrature{N, T}) where {N, T} = length(AQ.quadratures)
+Base.getindex(AQ::AdaptiveQuadrature{N, T}, i) where {N, T} = AQ.quadratures[i]
+Base.setindex!(AQ::AdaptiveQuadrature{N, T}, quadrature::Inti.Quadrature{N, T}, i) where {N, T} = (AQ.quadratures[i] = quadrature)
+quad_mesh(AQ::AdaptiveQuadrature{N, T}) where {N, T} = AQ.quad_mesh
+target_points(AQ::AdaptiveQuadrature{N, T}) where {N, T} = AQ.target_points
+kdtree(AQ::AdaptiveQuadrature{N, T}) where {N, T} = AQ.kdtree
+
+function AdaptiveQuadrature(quadratures::AbstractVector{Inti.Quadrature{N, T}}) where {N, T}
+    quad_mesh = Inti.mesh(quadratures[1])
+    target_points = Vector{SVector{2, Float64}}()
+    for quadrature in quadratures
+        points = [SVector{2, Float64}(q.coords[1], q.coords[2]) for q in quadrature]
+        append!(target_points, points)
+    end
+    kdtree = NearestNeighbors.KDTree(target_points)
+    return AdaptiveQuadrature{N, T}(
+        quadratures,
+        quad_mesh,
+        target_points,
+        kdtree
+    )
+end
+
+function AdaptiveQuadrature(meshes::AbstractVector{<:Inti.AbstractMesh{N, T}}, tri_qorder::Int64, quad_qorder::Int64) where {N, T}
+    quadratures = Vector{Inti.Quadrature{N, T}}()
+    # we assume the first mesh is a quad mesh
+    push!(quadratures, getDomainQuadrature(meshes[1], quad_qorder))
+    append!(quadratures, [getDomainQuadrature(mesh, tri_qorder) for mesh in meshes[2:end]])
+    return AdaptiveQuadrature(quadratures)
+end
+
+function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression, correction)
     # right now assuming source = target and op = 2D laplacian
-    # returns a linear map that evaluates like M * f = ϕ, 
+    # returns a linear map that evaluates like M * f = ϕ.
 
     # additionally this needs to be where we precompute everything: the fmm with no charges, N, the various inside/outside operators, etc.
     # this should be an integral operator
-    
+    # cannot pregenerate fmm with no charges, so we just make N here!
 
     function apply_adaptive_vol_pot(source_f_vals)
         # takes in the source f vals, returns the potentials at all source f vals
@@ -1458,6 +1507,66 @@ function adaptive_volume_potential(; op, source::Inti.Quadrature, compression, c
         #  1. apply FMM operator (built for this quadrature already) to source_f_vals to get far field contributions
         #  2. Apply linear map N to source_f_vals to get near-singular corrections
         #  3. Additionally, apply triangle volume potential operators to 
+
+        # this part is easy, really it is calculating the quad operator that needs the most work. 
+        quadtree_quadrature = source[1]
+        quadtree_mesh = quad_mesh(source)
+        tree = kdtree(source)
+
+        deg = 16
+        order = 17
+        if isfile("L_map_", order, "_", deg, ".jls")
+            L_map = Serialization.deserialize("L_map.jls")
+        else
+            L_map = getRelativeTargetPoints(order, deg)
+        end
+
+        num_points_per_quad = order^2
+
+        for (i, elem) in enumerate(Inti.elements(quadtree_mesh))
+            elem_quadrature_points = quadtree_quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+            f_vals = source_f_vals[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+
+            q_weights = [Inti.weight(q) for q in elem_quadrature_points]
+            b = log(2/h)/(2*pi)
+            correction = dot(q_weights, f_vals) .* b
+
+            F = reshape(f_vals, order, order)
+
+            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+            bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
+            h = coords[3][1] - coords[1][1]
+            center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
+            near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
+            near_vecs = []
+            for point_idx in near_target_points
+                point = target_points[point_idx]
+
+                x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
+                mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
+
+                if haskey(L_map, mapped_target_point)
+                    L = L_map[mapped_target_point]
+                else
+                    not_found_arr[i] += 1
+                    L = MultivariateSingularIntegrals.newtoniansquare(mapped_target_point, deg)
+                end
+                push!(near_vecs, vec(L))
+
+                I = dot(L, F)
+                term = I*h^2 / (8*pi) - correction_term
+                potentials[point_idx] += term
+                # now just subtract this quad's normal quadrature contribution from the estimated potential
+                domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
+                # don't subtract the singular node tho, that screws stuff up. 
+                potentials[point_idx] -= sum(domain_func(q)*q.weight for q in elem_quadrature_points if norm(q.coords - point) > 1e-12)
+            end
+            
+            c = h^2 / (8*pi)
+            I = dot(stack(near_vecs), F) .* c .- correction
+
+        end
+    end
 
 end
 

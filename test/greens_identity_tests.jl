@@ -206,8 +206,7 @@ using TestItems
             meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u, false)
             println("Generated mesh!")
             # error("bruh")
-            domain_quadratures = [AdaptiveMeshSolver.getDomainQuadrature(meshes[1], 17)]
-            append!(domain_quadratures, [AdaptiveMeshSolver.getDomainQuadrature(mesh, 8) for mesh in meshes[2:end]])
+            domain_quadratures = AdaptiveMeshSolver.AdaptiveQuadrature(meshes, 8, 17)
             boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 18) for mesh in meshes[2:end]]
             # AdaptiveMeshSolver.showMeshes(meshes)
             # println(meshes[2])

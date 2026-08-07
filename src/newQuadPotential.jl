@@ -82,5 +82,11 @@ cheb_basis = chebpoints((p, p), [-1, -1], [1, 1])
 cheb_nodes = [x[1] for x in cheb_basis[:, 1]]
 w = PolynomialBases.barycentric_weights(cheb_nodes)
 P = PolynomialBases.interpolation_matrix(leg_basis.nodes, cheb_nodes, w)
-@show P
-@show kron(P, P)
+r = rand(17, 17)
+kron_prod = kron(P, P)*vec(r)
+vec_prod = vec(P*r*transpose(P))
+@show maximum(kron_prod-vec_prod)
+
+# for each quad, to compute near singular correction, given f as quad points:
+# 1. precompute this matrix: P^TLP, instead of storing just L.
+# 2. Then, at runtime, compute c*dot(P^T L P, F) where F is the nxn representation of f (which is n*n x 1)
