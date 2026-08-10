@@ -16,6 +16,7 @@ using ClassicalOrthogonalPolynomials, MultivariateSingularIntegrals
 using NearestNeighbors
 using PolynomialBases
 using LinearMaps
+using SparseArrays
 
 include("mesh_tools.jl")
 

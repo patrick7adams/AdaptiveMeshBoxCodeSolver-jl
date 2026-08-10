@@ -214,30 +214,28 @@ using TestItems
             # error("HI")
             f_vals = stack(laplacian_u.(AdaptiveMeshSolver.target_points(domain_quadratures)))
 
-            vol_pot = AdaptiveMeshSolver.adaptive_volume_potential(; 
-                op=op, 
-                source=domain_quadratures, 
-                compression=(method = :fmm, tol=1e-14)
-            )            
-            potentials = vol_pot * f_vals
+            # vol_pot = AdaptiveMeshSolver.adaptive_volume_potential(; 
+            #     op=op, 
+            #     source=domain_quadratures, 
+            #     compression=(method = :fmm, tol=1e-14)
+            # )            
+            # potentials = vol_pot * f_vals
             
-            # target = Vector{SVector{2, Float64}}()
-            # multiplicative_terms = []
-            # for (i, quadrature) in enumerate(domain_quadratures)
-            #     points = [SVector{2, Float64}(q.coords[1], q.coords[2]) for q in quadrature]
-            #     append!(target, points)
-            # end
+            target = Vector{SVector{2, Float64}}()
+            multiplicative_terms = []
+            for (i, quadrature) in enumerate(domain_quadratures)
+                points = [SVector{2, Float64}(q.coords[1], q.coords[2]) for q in quadrature]
+                append!(target, points)
+            end
             
-            # count = 1
-            # for (i, quadrature) in enumerate(domain_quadratures)
-            #     l = length(quadrature)
-            #     terms = [i >= count && i < count+l ? :inside : :outside for i in 1:length(target)]
-            #     push!(multiplicative_terms, terms)
-            #     count += l
-            # end
-            # potentials = AdaptiveMeshSolver.calculateVolumePotential(domain_quadratures, meshes, laplacian_u, target, multiplicative_terms, true)
-
-
+            count = 1
+            for (i, quadrature) in enumerate(domain_quadratures)
+                l = length(quadrature)
+                terms = [i >= count && i < count+l ? :inside : :outside for i in 1:length(target)]
+                push!(multiplicative_terms, terms)
+                count += l
+            end
+            potentials = AdaptiveMeshSolver.calculateVolumePotential(domain_quadratures, meshes, laplacian_u, target, multiplicative_terms, true)
 
             for quad in boundary_quadratures
                 S, D = Inti.single_double_layer(;
@@ -260,7 +258,7 @@ using TestItems
             max_error = maximum(errors)
             @show L2_error
             @show max_error
-            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
+            # AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
         end
     end
 end

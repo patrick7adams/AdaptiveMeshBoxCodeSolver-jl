@@ -1237,7 +1237,7 @@ end
 
 function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
     start_time = time()
-    deg = 16
+    deg = 8
     order = 17
     if isfile(string("L_map_", order, "_", deg, ".jls"))
         L_map = Serialization.deserialize("L_map.jls")
@@ -1273,7 +1273,6 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
         pgt=1,
         nd=1
     )
-    error("HI")
     potentials = vcat(fmm_vals.pot, fmm_vals.pottarg) ./ (2pi)
     time_1, time_2 = 0.0, 0.0
     total_count, not_found_count = 0, 0
@@ -1293,11 +1292,26 @@ function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
         center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
         near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
         elem_quadrature_points = elem_to_quad_points[elem]
-        ux = generatePoints(u, x, bounds)'
-        tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
-        F = (tmp_F * ux)
+        # ux = generatePoints(u, x, bounds)'
+        # tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
+        # F = (tmp_F * ux)
+        m = 9
+        f_vals = reshape([u(q.coords) for q in elem_quadrature_points], m, m)
+        nodes, weights = PolynomialBases.gauss_legendre_nodes_and_weights(deg)
+        V = PolynomialBases.legendre_vandermonde(nodes)
+        P = [(2*(i-1)+1)/2 * weights[j]*V[j, i] for i in 1:9, j in 1:9 ]
+        # leg_basis = PolynomialBases.GaussLegendre(deg-1)
+        # cheb_basis = chebpoints((10, 10), [-1, -1], [1, 1])
+        # cheb_nodes = [x[1] for x in cheb_basis[2:end-1, 1]]
+        # w = PolynomialBases.barycentric_weights(cheb_nodes)
+        # P = PolynomialBases.interpolation_matrix(leg_basis.nodes, cheb_nodes, w)
+        error("HI")
 
-        
+        F = P * f_vals * transpose(P)
+        # @show cheb_nodes
+        # @show 
+        # error("HI")
+
         correction_term = log(2/h)/(2*pi)*Correction_map[elem]
         # now calculate both singular method and nonsingular method quad contributions for each of these points
         for point_idx in near_target_points
@@ -1560,13 +1574,20 @@ function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression
         push!(triangle_potentials, (inside_volume_potential, outside_volume_potential))
     end
     
-    
+    error("HI")
 
     sources = stack(Inti.coords.(quadtree_quadrature))
     targets = stack(target[target_lengths[1]+1:end])
 
     q_coords = reduce(vcat, [Inti.coords.(quadrature) for quadrature in source])
     q_weights = reduce(vcat, [Inti.weight.(quadrature) for quadrature in source])
+
+    # define N mat, mapping from all source to all target
+    N = spzeros(n, n)
+
+    # now we must construct it and its components
+    # 
+
 
     return LinearMaps.LinearMap{Float64}(n, n) do y, x      
         charges = reshape(q_weights[1:target_lengths[1]] .* x[1:target_lengths[1]], 1, :)
