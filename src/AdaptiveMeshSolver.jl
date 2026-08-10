@@ -14,6 +14,8 @@ using Statistics
 using Serialization
 using ClassicalOrthogonalPolynomials, MultivariateSingularIntegrals
 using NearestNeighbors
+using PolynomialBases
+using LinearMaps
 
 include("mesh_tools.jl")
 
