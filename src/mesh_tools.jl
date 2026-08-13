@@ -10,18 +10,27 @@ function showMesh(msh, points=[])
 
     Ω = Inti.Domain(e -> Inti.geometric_dimension(e) == 2, msh)
     Ω_msh = @views msh[Ω]
+    # Ω_msh = view(msh, Ω)
+    # viz(Ω_msh; strokewidth = 1)
+    fig = viz(
+        Ω_msh;
+        segmentsize = 1,
+        showsegments = true,
+        axis = (aspect = DataAspect(),),
+        figure = (; size = (1000, 1000)),
+    )
     # fig = Inti.plot(Ω_msh; linewidth=3)
-    fig, ax, plt = plot(Ω_msh; strokewidth = 1, axis = (aspect = DataAspect(),), figure=(; size = (1000, 1000)))
+    # fig, ax, plt = plot(Ω_msh; strokewidth = 1, axis = (aspect = DataAspect(),), figure=(; size = (1000, 1000)))
     Γ = Inti.boundary(Ω)
     # Γ = Inti.boundary(Ω)
     if length(keys(Γ)) > 0 # boundary exists
         Γ_msh = @views msh[Γ]
-        plot!(Γ_msh; color = :red, strokewidth = 1)
+        viz!(Γ_msh; color = :red, segmentsize = 1, showsegments = true)
     end
     if length(points) > 0
-        # pointset = Meshes.PointSet([Meshes.Point((point[1], point[2])) for point in points])
-        pointset = Point2f.(points)
-        scatter!(pointset; color = :red)
+        pointset = Meshes.PointSet([Meshes.Point((point[1], point[2])) for point in points])
+        # pointset = Point2f.(points)
+        viz!(pointset; color = :red, pointsize = 3, showpoints = true)
     end
     display(fig)
 end

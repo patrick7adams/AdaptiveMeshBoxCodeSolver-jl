@@ -1094,48 +1094,6 @@ function getBoundaryQuadrature(mesh, order)
     return boundary_quadrature
 end
 
-function generatePoints(u, x, bounds)
-    # x is a vector of deg points between 1 and -1, transform into quad dimensions
-    x_normal = [xi / 2 + 1/2 for xi in x]
-    xlen, ylen = bounds[1][2] - bounds[1][1], bounds[2][2] - bounds[2][1]
-    x_xdim = [bounds[1][1] + xi*xlen for xi in x_normal]
-    x_ydim = [bounds[2][1] + xi*ylen for xi in x_normal]
-    # println(bounds)
-    # println(xlen, ylen)
-    # println(x_normal)
-    # println(x_xdim)
-    # println(x_ydim)
-
-    return stack([[u((xi, yi)) for xi in x_xdim] for yi in x_ydim], dims=1)
-end
-
-function getCorrectionMap(quad_mesh, quadrature, u)
-    Correction_map = Dict{Inti.LagrangeElement{Inti.ReferenceHyperCube{2}, 4, StaticArraysCore.SVector{2, Float64}}, Float64}()
-
-    num_points_per_quad = Int64(length(quadrature) / length([x for x in Inti.elements(quad_mesh)]))
-    num_quads = Int64(length(quadrature) / num_points_per_quad)
-    mid_point_coord = Int64(ceil(num_points_per_quad/2))
-    for quad in Inti.elements(quad_mesh)
-        coords = [(x[1], x[2]) for x in Inti.vertices(quad)]
-        h = coords[3][1] - coords[1][1]
-        start_idx = -1
-        for i in 1:num_quads
-            point = quadrature[(i-1)*num_points_per_quad + mid_point_coord].coords
-            if (coords[1][1] <= point[1] && point[1] <= coords[3][1]) && (coords[1][2] <= point[2] && point[2] <= coords[3][2])
-                start_idx = (i-1)*num_points_per_quad
-                break
-            end
-        end
-        integral = 0
-        for quad_point in quadrature[start_idx+1:start_idx+num_points_per_quad]
-            integral += u(quad_point.coords) * quad_point.weight 
-        end
-        correction_term = integral
-        Correction_map[quad] = correction_term
-    end
-    return Correction_map
-end
-
 function getRelativeTargetPoints(order, deg)
     # gets the location of all target points relative to 
 
@@ -1218,249 +1176,24 @@ function getRelativeTargetPoints(order, deg)
         point = SVector{2, Float64}(round(p[1], digits=10), round(p[2], digits=10))
         push!(point_set, point)
     end
-    L_map = Dict{Vector{Float64}, Matrix{Float64}}()
+    L_map = Dict{Vector{Float64}, Vector{Float64}}()
     
     # leg_basis = PolynomialBases.GaussLegendre(deg)
     # cheb_basis = chebpoints((order, order), [-1, -1], [1, 1])
     # cheb_nodes = [x[1] for x in cheb_basis[:, 1]]
     # w = PolynomialBases.barycentric_weights(cheb_nodes)
     # P = PolynomialBases.interpolation_matrix(leg_basis.nodes, cheb_nodes, w)
+    
+    nodes, weights = PolynomialBases.gauss_legendre_nodes_and_weights(deg-1)
+    V = PolynomialBases.legendre_vandermonde(nodes) # 17x17 V mat 
+    P = [(2*(i-1)+1)/2 * weights[j]*V[j, i] for i in 1:9, j in 1:9 ]
 
     for point in point_set
         L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
-        # L_map[point] = transpose(P)*L*P
-        L_map[point] = L
+        L_map[point] = vec(transpose(P)*L*P)
     end
     Serialization.serialize(string("L_map_", order, "_", deg, ".jls"), L_map)
     return L_map
-end
-
-function calculateQuadVolumePotential(meshes, quadrature, u, target_points)
-    start_time = time()
-    deg = 8
-    order = 17
-    if isfile(string("L_map_", order, "_", deg, ".jls"))
-        L_map = Serialization.deserialize("L_map.jls")
-    else
-        L_map = getRelativeTargetPoints(order, deg)
-    end
-    quad_mesh = meshes[1]
-    greens_fn = (x, y) -> 1/(2pi) * log(distance(x, y))
-    potentials = [0.0 for point in target_points]
-    Correction_map = getCorrectionMap(quad_mesh, quadrature, u)
-    # first set up legendre polynomials for singular evaluations
-    P = ClassicalOrthogonalPolynomials.Legendre()
-    
-    x = ClassicalOrthogonalPolynomials.grid(P, deg)
-    # construct kdtree
-    tree = NearestNeighbors.KDTree(target_points)
-    # map quad mesh element -> iterable of quadrature points over that element
-    elem_to_quad_points = Dict()
-    num_points_per_quad = Int64(length(quadrature) / length([x for x in Inti.elements(quad_mesh)]))
-    for (i, elem) in enumerate(Inti.elements(quad_mesh))
-        elem_to_quad_points[elem] = quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-    end
-    # quadrature_u = 
-    sources = stack(Inti.coords.(quadrature))
-    charges = reshape(stack([q.weight*u(q.coords) for q in quadrature]), 1, :)
-    targets = stack(target_points[length(quadrature)+1:end])
-    fmm_vals = FMM2D.rfmm2d(;
-        eps = 1e-14, # will change this later
-        sources = sources,
-        charges = charges,
-        targets = targets,
-        pg=1,
-        pgt=1,
-        nd=1
-    )
-    potentials = vcat(fmm_vals.pot, fmm_vals.pottarg) ./ (2pi)
-    time_1, time_2 = 0.0, 0.0
-    total_count, not_found_count = 0, 0
-    total_arr = []
-    not_found_arr = []
-    for (i, elem) in enumerate(Inti.elements(quad_mesh))
-        push!(total_arr, 0)
-        push!(not_found_arr, 0)
-        # if i == 10
-        #     error("HI")
-        # end
-        # println(i / length([x for x in Inti.elements(quad_mesh)]))
-        # loop through elements, get target points within range of center
-        coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
-        bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
-        h = coords[3][1] - coords[1][1]
-        center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
-        near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
-        elem_quadrature_points = elem_to_quad_points[elem]
-        # ux = generatePoints(u, x, bounds)'
-        # tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
-        # F = (tmp_F * ux)
-        m = 9
-        f_vals = reshape([u(q.coords) for q in elem_quadrature_points], m, m)
-        nodes, weights = PolynomialBases.gauss_legendre_nodes_and_weights(deg)
-        V = PolynomialBases.legendre_vandermonde(nodes)
-        P = [(2*(i-1)+1)/2 * weights[j]*V[j, i] for i in 1:9, j in 1:9 ]
-        # leg_basis = PolynomialBases.GaussLegendre(deg-1)
-        # cheb_basis = chebpoints((10, 10), [-1, -1], [1, 1])
-        # cheb_nodes = [x[1] for x in cheb_basis[2:end-1, 1]]
-        # w = PolynomialBases.barycentric_weights(cheb_nodes)
-        # P = PolynomialBases.interpolation_matrix(leg_basis.nodes, cheb_nodes, w)
-        error("HI")
-
-        F = P * f_vals * transpose(P)
-        # @show cheb_nodes
-        # @show 
-        # error("HI")
-
-        correction_term = log(2/h)/(2*pi)*Correction_map[elem]
-        # now calculate both singular method and nonsingular method quad contributions for each of these points
-        for point_idx in near_target_points
-            total_arr[i] += 1
-            
-            point = target_points[point_idx]
-
-            # TMP remove all points outside of quads
-            # point_in_quads = false
-            # for elem in Inti.elements(quad_mesh)
-            #     verts = Inti.vertices(elem)
-            #     if point[1] > verts[1][1] && point[1] < verts[3][1] && point[2] > verts[1][2] && point[2] < verts[3][2]
-            #         point_in_quads = true
-            #     end
-            # end
-            # if !point_in_quads
-            #     continue
-            # end
-            singular_time = time()
-            # first singular method
-            x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
-            
-            mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
-            # mapped_target_point += [1e-16, 1e-16]
-            # write this statically instead
-            if haskey(L_map, mapped_target_point)
-                L = L_map[mapped_target_point]
-            else
-                not_found_arr[i] += 1
-                L = Float64.(MultivariateSingularIntegrals.newtoniansquare(mapped_target_point, deg))
-            end
-            time_1 += time() - singular_time
-            # L = nothing
-            # try
-            #     L = L_map[mapped_target_point]
-            # catch err
-            #     @show point
-            #     @show center
-            # end
-            rest_time = time()
-            I = dot(L, F)
-            term = I*h^2 / (8*pi) - correction_term
-            potentials[point_idx] += term
-            # now just subtract this quad's normal quadrature contribution from the estimated potential
-            domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
-            # don't subtract the singular node tho, that screws stuff up. 
-            potentials[point_idx] -= sum(domain_func(q)*q.weight for q in elem_quadrature_points if norm(q.coords - point) > 1e-12)
-            time_2 = time() - rest_time
-        end
-    end
-    # for (not_found, total) in zip(not_found_arr, total_arr)
-    #     println(not_found, " : ", total)
-    # end
-    @show sum(not_found_arr)
-    @show sum(total_arr)
-    end_time = time() - start_time
-    @show end_time
-    @show length(target_points) / end_time
-    @show time_1
-    @show time_2
-    return potentials
-end
-
-function calculateTriangleVolumePotential(quadrature, density, target_points, multiplicative_terms)
-    op = Inti.Laplace(; dim=2)
-    inside_target_points = Vector{SVector{2, Float64}}()
-    boundary_target_points = Vector{SVector{2, Float64}}()
-    outside_target_points = Vector{SVector{2, Float64}}()
-    inside_indices = Vector{Int64}()
-    boundary_indices = Vector{Int64}()
-    outside_indices = Vector{Int64}()
-    # println(multiplicative_terms)
-    for (i, point) in enumerate(target_points)
-        if multiplicative_terms[i] == :on
-            push!(boundary_target_points, point)
-            push!(boundary_indices, i)
-        elseif multiplicative_terms[i] == :inside
-            push!(inside_target_points, point)
-            push!(inside_indices, i)
-        else
-            push!(outside_target_points, point)
-            push!(outside_indices, i)
-        end
-    end
-    max_dist = 0.2
-    potentials = [0.0 for x in target_points]
-    laplacian_points = [density(q.coords) for q in quadrature]
-
-    compression_method = (method = :fmm, tol=1e-14)
-
-    if length(inside_target_points) > 0
-        inside_volume_potential = Inti.volume_potential(; 
-            op, 
-            target = inside_target_points, 
-            source = quadrature,
-            compression = compression_method,
-            correction = (method = :dim, maxdist=max_dist, target_location=:inside), 
-        )
-        inside_potentials = inside_volume_potential * laplacian_points
-        for i in 1:length(inside_potentials)
-            potentials[inside_indices[i]] = -inside_potentials[i] 
-        end
-    end
-    if length(boundary_target_points) > 0
-        boundary_volume_potential = Inti.volume_potential(; 
-            op, 
-            target = boundary_target_points, 
-            source = quadrature,
-            compression = compression_method,
-            correction = (method = :dim, maxdist=max_dist, target_location=:on), 
-        )
-        boundary_potentials = boundary_volume_potential * laplacian_points
-        for i in 1:length(boundary_potentials)
-            potentials[boundary_indices[i]] = -boundary_potentials[i] 
-        end
-    end
-    if length(outside_target_points) > 0
-        outside_volume_potential = Inti.volume_potential(; 
-            op, 
-            target = outside_target_points, 
-            source = quadrature,
-            compression = compression_method,
-            correction = (method = :dim, maxdist=max_dist, target_location=:outside), 
-        )
-        outside_potentials = outside_volume_potential * laplacian_points
-        for i in 1:length(outside_potentials)
-            potentials[outside_indices[i]] = -outside_potentials[i] 
-        end
-    end
-    # println(potentials)
-    return potentials
-end
-
-function calculateVolumePotential(quadratures, meshes, u, target_points, multiplicative_terms, verbose=false)
-    # calculates the volume potential over the quadratures. Assumes that the first quadrature passed represents the quadtree.
-    target_potentials = calculateQuadVolumePotential(meshes, quadratures[1], u, target_points)
-    if verbose
-        println("Finished calculating quad volume potential")
-    end
-    for (i, quadrature) in enumerate(quadratures[2:end])
-        tmp_target_potentials = calculateTriangleVolumePotential(quadrature, u, target_points, multiplicative_terms[i+1])
-        for (j, potential) in enumerate(tmp_target_potentials)
-            target_potentials[j] += potential
-        end
-        if verbose
-            println("Finished calculating triangle volume potential for boundary ", i)
-        end
-    end
-    return target_potentials
 end
 
 struct AdaptiveQuadrature{N, T} <: AbstractVector{Inti.Quadrature{N, T}}
@@ -1529,12 +1262,13 @@ function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression
     n = length(target)
     tree = kdtree(source)
 
-    deg = 16
+    @show n
+
+    deg = 9
     order = 17
-    P = ClassicalOrthogonalPolynomials.Legendre()
-    x = ClassicalOrthogonalPolynomials.grid(P, deg)
+    
     if isfile(string("L_map_", order, "_", deg, ".jls"))
-        L_map = Serialization.deserialize("L_map.jls")
+        L_map = Serialization.deserialize(string("L_map_", order, "_", deg, ".jls"))
     else
         L_map = getRelativeTargetPoints(order, deg)
     end
@@ -1548,13 +1282,15 @@ function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression
     triangle_potentials = []
     for (i, quadrature) in enumerate(source[2:end])
         strip_start = target_lengths[i]+1
-        if i < length(source)
+        if i+1 < length(source)
             strip_end = target_lengths[i+1]
             inside_target_points = target[strip_start:strip_end]
-            outside_target_points = vcat(target[1:strip_start-1], target[strip_end:end])
+            before_target_points = target[1:strip_start-1]
+            after_target_points = target[strip_end:end]
         else 
+            strip_end = target_lengths[i+1]
             inside_target_points = target[strip_start:end]
-            outside_target_points = target[1:strip_start-1]
+            before_target_points = target[1:strip_start-1]
         end
         
         inside_volume_potential = Inti.volume_potential(; 
@@ -1564,32 +1300,117 @@ function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression
             compression = compression,
             correction = (method = :dim, maxdist=0.2, target_location=:inside), 
         )
-        outside_volume_potential = Inti.volume_potential(; 
+        before_volume_potential = Inti.volume_potential(; 
             op, 
-            target = outside_target_points, 
+            target = before_target_points, 
             source = quadrature,
             compression = compression,
             correction = (method = :dim, maxdist=0.2, target_location=:outside), 
         )
-        push!(triangle_potentials, (inside_volume_potential, outside_volume_potential))
+        if i+1 < length(source)
+            after_volume_potential = Inti.volume_potential(; 
+                op, 
+                target = after_target_points, 
+                source = quadrature,
+                compression = compression,
+                correction = (method = :dim, maxdist=0.2, target_location=:outside), 
+            )
+            push!(triangle_potentials, vcat(before_volume_potential, inside_volume_potential, after_volume_potential))
+        else
+            push!(triangle_potentials, vcat(before_volume_potential, inside_volume_potential))
+        end
     end
     
-    error("HI")
-
+    quad_tri_pot = LinearMap(spzeros(n, target_lengths[1]))
+    tri_pot = hcat(quad_tri_pot, triangle_potentials...)
+    
     sources = stack(Inti.coords.(quadtree_quadrature))
     targets = stack(target[target_lengths[1]+1:end])
 
     q_coords = reduce(vcat, [Inti.coords.(quadrature) for quadrature in source])
     q_weights = reduce(vcat, [Inti.weight.(quadrature) for quadrature in source])
 
-    # define N mat, mapping from all source to all target
-    N = spzeros(n, n)
+    nodes, weights = PolynomialBases.gauss_legendre_nodes_and_weights(deg-1)
+    println(nodes)
+    V = PolynomialBases.legendre_vandermonde(nodes) # 17x17 V mat
+    P = [(2*(i-1)+1)/2 * weights[j]*V[j, i] for i in 1:9, j in 1:9 ]
 
     # now we must construct it and its components
     # 
+    num_points_per_quad = 81
+    rows = Vector{Int32}()
+    cols = Vector{Int32}()
+    vals = Vector{Float64}()
+    total = 0
+    start_time = time()
+    for (i, elem) in enumerate(Inti.elements(quadtree_mesh))
+        elem_q_points = q_coords[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+        elem_q_weights = q_weights[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+        
+        coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+        h = coords[3][1] - coords[1][1]
 
+        center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
 
-    return LinearMaps.LinearMap{Float64}(n, n) do y, x      
+        near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
+        filtered_target_points = []
+        for point_idx in near_target_points
+            point = target[point_idx]
+            x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
+            mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
+            ~haskey(L_map, mapped_target_point) || continue
+            push!(filtered_target_points, point_idx)
+        end
+        ~isempty(filtered_target_points) || continue
+        
+        b = log(2/h)/(2*pi)
+        c = h^2 / (8*pi)
+
+        g_mat = [ norm(p1 - target[p2]) < 1e-12 ? 0.0 : kernel(p1, target[p2]) for p2 in filtered_target_points, (i, p1) in enumerate(elem_q_points)]
+        second_correction = g_mat .* transpose(elem_q_weights)
+        # @show size(g_mat)
+        # @show size(elem_q_weights)
+        correction = elem_q_weights .* b
+        found = 0
+        # start_time, end_time, real_end_time = 0, 0, 0
+        for (j, point_idx) in enumerate(filtered_target_points)
+            total += 1
+            point = target[point_idx]
+            x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
+            mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
+
+            L = MultivariateSingularIntegrals.newtoniansquare(mapped_target_point, deg)
+            # mat = vec(transpose(P)*L*P) .* c - correction .- second_correction[j]
+            mat = vec(transpose(P)*L*P) .* c - correction .- second_correction[j, :]
+
+            # if point_idx == 5786
+            #     @show i
+            #     @show j
+            #     @show vec(transpose(P)*L*P) .* c
+            #     @show correction
+            #     @show second_correction[j, :]
+            #     @show center
+            #     println("-----------------")
+            # end
+
+            append!(rows, [point_idx for _ in 1:num_points_per_quad])
+            append!(cols, [k for k in (i-1)*num_points_per_quad+1:i*num_points_per_quad])
+            append!(vals, mat)
+        end
+        # @show start_time
+        # @show end_time
+        # @show real_end_time
+        # @show found
+        # @show length(near_target_points)
+        # if i == 15
+        #     error("HI")
+        # end
+    end
+    N = LinearMaps.LinearMap(sparse(rows, cols, vals, n, n))
+    @show time() - start_time
+    q_map = quad_contribution(source, n)
+
+    fmm_map = LinearMaps.LinearMap{Float64}(n, n) do y, x
         charges = reshape(q_weights[1:target_lengths[1]] .* x[1:target_lengths[1]], 1, :)
         
         fmm_vals = FMM2D.rfmm2d(;
@@ -1602,120 +1423,99 @@ function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression
             nd=1
         )
         potentials = vcat(fmm_vals.pot, fmm_vals.pottarg) ./ (2pi)
-        order = 17
-        num_points_per_quad = order^2
-        # this is where runtime ops happen
-        for (i, elem) in enumerate(Inti.elements(quadtree_mesh))
-            elem_q_points = q_coords[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-            elem_q_weights = q_weights[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-
-            f_vals = x[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-            ux = generatePoints(u, x, bounds)'
-            tmp_F = ClassicalOrthogonalPolynomials.plan_transform(P, (deg, deg))
-            F = (tmp_F * ux)
-
-            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
-
-            h = coords[3][1] - coords[1][1]
-
-            b = log(2/h)/(2*pi)
-            c = h^2 / (8*pi)
-
-            correction = elem_q_weights .* f_vals .* b
-
-            center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
-
-            near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
-            g_mat = stack([[i == j ? 0.0 : kernel(p1, target[p2]) for (j, p2) in enumerate(near_target_points)] for (i, p1) in enumerate(elem_q_points)])
-            
-            second_correction = g_mat * (f_vals .* elem_q_weights)
-
-            potentials[(i-1)*num_points_per_quad+1:i*num_points_per_quad] -= correction
-            
-            for (i, point_idx) in enumerate(near_target_points)
-                point = target[point_idx]
-                x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
-                mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
-
-                if haskey(L_map, mapped_target_point)
-                    L = L_map[mapped_target_point]
-                else
-                    not_found_arr[i] += 1
-                    L = MultivariateSingularIntegrals.newtoniansquare(mapped_target_point, deg)
-                end
-                I = dot(L, F)
-                term = I*c - second_correction[i]
-                potentials[point_idx] += term
-            end
-        end
-
         return copyto!(y, potentials)
     end
 
-    function apply_adaptive_vol_pot(source_f_vals)
-        # takes in the source f vals, returns the potentials at all source f vals
-        # sketch:
-        #  1. apply FMM operator (built for this quadrature already) to source_f_vals to get far field contributions
-        #  2. Apply linear map N to source_f_vals to get near-singular corrections
-        #  3. Additionally, apply triangle volume potential operators to 
+    vol_map = fmm_map + N + q_map - tri_pot
+    return vol_map
+end
 
-        # this part is easy, really it is calculating the quad operator that needs the most work. 
+function quad_contribution(source, n)
+    quadtree_mesh = quad_mesh(source)
+    q_coords = reduce(vcat, [Inti.coords.(quadrature) for quadrature in source])
+    q_weights = reduce(vcat, [Inti.weight.(quadrature) for quadrature in source])
+    tree = kdtree(source)
+    target = target_points(source)
 
-        deg = 16
-        order = 17
-        if isfile("L_map_", order, "_", deg, ".jls")
-            L_map = Serialization.deserialize("L_map.jls")
-        else
-            L_map = getRelativeTargetPoints(order, deg)
-        end
+    kernel = (x, y) -> 1/(2pi)*log(norm(x-y))
 
-        num_points_per_quad = order^2
-
-        for (i, elem) in enumerate(Inti.elements(quadtree_mesh))
-            elem_quadrature_points = quadtree_quadrature[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-            f_vals = source_f_vals[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
-
-            q_weights = [Inti.weight(q) for q in elem_quadrature_points]
-            b = log(2/h)/(2*pi)
-            correction = dot(q_weights, f_vals) .* b
-
-            F = reshape(f_vals, order, order)
-
-            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
-            bounds = ((coords[1][1], coords[3][1]), (coords[1][2], coords[3][2]))
-            h = coords[3][1] - coords[1][1]
-            center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
-            near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
-            near_vecs = []
-            for point_idx in near_target_points
-                point = target_points[point_idx]
-
-                x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
-                mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
-
-                if haskey(L_map, mapped_target_point)
-                    L = L_map[mapped_target_point]
-                else
-                    not_found_arr[i] += 1
-                    L = MultivariateSingularIntegrals.newtoniansquare(mapped_target_point, deg)
-                end
-                push!(near_vecs, vec(L))
-
-                I = dot(L, F)
-                term = I*h^2 / (8*pi) - correction_term
-                potentials[point_idx] += term
-                # now just subtract this quad's normal quadrature contribution from the estimated potential
-                domain_func = (q) -> greens_fn(point, q.coords) * u(q.coords)
-                # don't subtract the singular node tho, that screws stuff up. 
-                potentials[point_idx] -= sum(domain_func(q)*q.weight for q in elem_quadrature_points if norm(q.coords - point) > 1e-12)
-            end
-            
-            c = h^2 / (8*pi)
-            I = dot(stack(near_vecs), F) .* c .- correction
-
-        end
+    deg = 9
+    order = 17
+    
+    if isfile(string("L_map_", order, "_", deg, ".jls"))
+        L_map = Serialization.deserialize(string("L_map_", order, "_", deg, ".jls"))
+    else
+        L_map = getRelativeTargetPoints(order, deg)
     end
 
+    return LinearMaps.LinearMap{Float64}(n, n) do y, x
+        potentials = zeros(n)
+        order = 17
+        num_points_per_quad = 81
+        # this is where runtime ops happen
+        total = 0
+        start_time, end_time, real_end_time, real_real_end_time = 0, 0, 0, 0
+        for (i, elem) in enumerate(Inti.elements(quadtree_mesh))
+            t_1 = time()
+            elem_q_points = q_coords[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+            elem_q_weights = q_weights[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+            f_vals = x[(i-1)*num_points_per_quad+1:i*num_points_per_quad]
+
+            coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+            h = coords[3][1] - coords[1][1]
+
+            center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
+            t_2 = time()
+            start_time += t_2 - t_1
+            near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
+            filtered_target_points = []
+            for point_idx in near_target_points
+                point = target[point_idx]
+                x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
+                mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
+                haskey(L_map, mapped_target_point) || continue
+                push!(filtered_target_points, point_idx)
+            end
+            t_3 = time()
+            end_time += t_3 - t_2
+            b = log(2/h)/(2*pi)
+            c = h^2 / (8*pi)
+            
+            g_mat = [ (i-1)*num_points_per_quad+j == p2 ? 0.0 : kernel(p1, target[p2]) for p2 in filtered_target_points, (j, p1) in enumerate(elem_q_points)]
+            second_correction = g_mat * (elem_q_weights .* f_vals)
+            correction = dot(elem_q_weights .* b, f_vals)
+            f_vals_c = c .* f_vals
+
+            t_4 = time()
+            real_end_time += t_4 - t_3
+            for (j, point_idx) in enumerate(filtered_target_points)
+                # t1 = time()
+                total += 1                
+                point = target[point_idx]
+                x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
+                mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
+                L = L_map[mapped_target_point]
+                # t2 = time()
+                # start_time += t2-t1
+                mat = dot(L, f_vals_c) - correction - second_correction[j]
+                # t3 = time()
+                # end_time += t3-t2
+                potentials[point_idx] += mat
+            end
+            real_real_end_time += time() - t_4
+            # @show real_end_time
+            # @show found
+            # @show length(near_target_points)
+            # if i == 15
+            #     error("HI")
+            # end
+        end
+        @show start_time
+        @show end_time
+        @show real_end_time
+        @show real_real_end_time
+        return copyto!(y, potentials)
+    end
 end
 
 # TODO
