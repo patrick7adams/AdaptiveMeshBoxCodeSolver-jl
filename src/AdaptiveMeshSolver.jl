@@ -17,6 +17,10 @@ using NearestNeighbors
 using PolynomialBases
 using LinearMaps
 using SparseArrays
+using InteractiveUtils
+using BenchmarkTools
+using Cthulhu
+using Profile, PProf
 
 include("mesh_tools.jl")
 

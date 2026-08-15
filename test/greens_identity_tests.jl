@@ -7,6 +7,9 @@ using TestItems
     using StaticArrays
     using LinearAlgebra
     using Gmsh
+    using InteractiveUtils
+    using Profile, PProf
+    using BenchmarkTools
 
     function test_simple_quadtree_greens_third_identity_zero()
         @testset "Greens Third Identity, u=x^2-y^2" begin
@@ -240,13 +243,20 @@ using TestItems
             # error("HI")
             f_vals = stack(laplacian_u.(AdaptiveMeshSolver.target_points(domain_quadratures)))
 
-            @allocated vol_pot = AdaptiveMeshSolver.adaptive_volume_potential(; 
+            vol_pot = AdaptiveMeshSolver.adaptive_volume_potential(; 
                 op=op, 
                 source=domain_quadratures, 
                 compression=(method = :fmm, tol=1e-14)
             )            
-            @show typeof(vol_pot)
-            @allocated potentials = vol_pot * f_vals
+            # Profile.clear()
+            # Profile.init(n=10000000, delay=1e-3)
+            # @profile potentials = vol_pot * f_vals
+            # pprof()
+            # error("hey")
+            potentials = vol_pot * f_vals
+            for i in 1:10
+                @time potentials = vol_pot * f_vals
+            end
 
             target = Vector{SVector{2, Float64}}()
             multiplicative_terms = []
