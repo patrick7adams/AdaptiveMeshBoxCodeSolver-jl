@@ -1418,12 +1418,15 @@ function correction_contribution!(second_correction, target, p, elem_q_points, e
     w = @inbounds elem_q_weights[k]
     f = @inbounds f_vals[k]
     second_correction[j] += 1/(2pi)*log(norm(p1-p2))*w*f
+    # second_correction[j] += 1/(4pi)*((p1[1]-p2[1])^2 + (p1[2]-p2[2])^2)*w*f
+    # second_correction[j] += 1.0
 end
 
 function some_corrections(second_correction, target, filtered_target_points, elem_q_points, elem_q_weights, f_vals, offset, j)
     p = filtered_target_points[j]
     for k in eachindex(elem_q_points)
         offset+k != p || continue
+        # continue
         correction_contribution!(second_correction, target, p, elem_q_points, elem_q_weights, f_vals, k, j)
         # error("D")
     end
@@ -1459,6 +1462,7 @@ end
 
 function quad_contribution(quadtree_mesh, q_coords, q_weights, tree, target, L_map, num_points, n, kernel)
     return LinearMaps.LinearMap{Float64}(n, n) do y, x
+        total = 0
         potentials = zeros(n)
         for (i, elem) in enumerate(Inti.elements(quadtree_mesh))
             elem_q_points = q_coords[(i-1)*num_points+1:i*num_points]
@@ -1473,11 +1477,12 @@ function quad_contribution(quadtree_mesh, q_coords, q_weights, tree, target, L_m
             b = log(2/h)/(2*pi)
             c = h^2 / (8*pi)
             second_correction = @MVector zeros(length(filtered_target_points))
-            second_correction!(second_correction, filtered_target_points, elem_q_points, (i-1)*num_points, target, elem_q_weights, f_vals)
+            total += @elapsed second_correction!(second_correction, filtered_target_points, elem_q_points, (i-1)*num_points, target, elem_q_weights, f_vals)
             correction = dot(elem_q_weights .* b, f_vals)
             f_vals_c = c .* f_vals
             add_potential_contributions(potentials, filtered_target_points, target, coords, h, L_map, f_vals_c, correction, second_correction)
         end
+        @show total
         return copyto!(y, potentials)
     end
 end

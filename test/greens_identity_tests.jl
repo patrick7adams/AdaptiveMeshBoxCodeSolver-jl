@@ -254,6 +254,7 @@ using TestItems
             # pprof()
             # error("hey")
             potentials = vol_pot * f_vals
+            # potentials = vol_pot * f_vals
             for i in 1:10
                 @time potentials = vol_pot * f_vals
             end
