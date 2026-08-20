@@ -6,3 +6,5 @@ flake.lock
 *.cov
 .envrc
 Manifest.toml
+test/L_map_*
+test/profile.pb.gz
