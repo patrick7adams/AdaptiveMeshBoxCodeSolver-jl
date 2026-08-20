@@ -22,6 +22,7 @@ using BenchmarkTools
 using Cthulhu
 using Infiltrator
 using Profile, PProf
+using LoopVectorization
 
 include("mesh_tools.jl")
 

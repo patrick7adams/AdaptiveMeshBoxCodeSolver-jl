@@ -1409,7 +1409,7 @@ end
 
 @inline function custom_dot(L, f_vals, len)
     s = 0.0
-    @inbounds @simd for i in 1:len
+    @turbo for i in 1:len
         s += L[i]*f_vals[i]
     end
     s
