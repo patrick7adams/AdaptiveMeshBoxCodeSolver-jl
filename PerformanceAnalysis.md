@@ -105,3 +105,35 @@ quad -> quad map - ~0.81 seconds, 78.41k allocations
 triangle -> triangle map - 0.047 seconds, 140 allocations
 
 SO quad -> quad is STILL BAD
+
+quad -> quad is now around 0.08 seconds, so much closer to FMM speed but quite there yet. allocations are lower as well.
+
+new quad -> quad map - ~0.08 seconds, 54.41k allocations
+
+ideas to lower this:
+- precache more inti element data (nearby filtered neighbors, correction data, coords/distances) DONE
+- remove rounding in lookups? could map to something different, or just stop doing lookups like this in general
+  - convert to int for all hashing operations, func in one place would potentially be nice but idk if this will speed up at all,
+    I'm assuming SVector has a good hashing system already
+- map target point in its own function? may speed it up for similar reasons to the old correction funcs 
+
+did a lot more precomputation. Now it takes around 0.04 seconds. 
+
+New map time:
+FMM map - ~0.073 seconds, 76 allocations
+quad -> triangle map - ~0.002 seconds, 3 allocations
+quad -> quad map - ~0.043 seconds, 1.84k allocations
+triangle -> triangle map - 0.047 seconds, 140 allocations
+total map - 0.178 seconds, 2.05k allocations
+
+then total FMM time is triangle -> triangle + FMM, so 0.12 seconds. Remaining time is 0.045 seconds
+
+Now, characterizing the main issues with the initial operator creation:
+Creating some precached quad data takes 0.9 seconds (can be optimized)
+Creating the quad -> triangle map takes 1.4 seconds (can also be optimized)
+HOWEVER, creating the triangle -> triangle map takes 7.5 seconds (!!!!!)
+Additionally, this time consists almost entirely (down to 1e-3 or 1e-4 seconds) of the Inti operator creation
+what is there to do here?
+allocations are also maybe an issue but not sure
+
+use @profview

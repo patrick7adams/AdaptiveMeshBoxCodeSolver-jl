@@ -20,6 +20,7 @@ using SparseArrays
 using InteractiveUtils
 using BenchmarkTools
 using Cthulhu
+using Infiltrator
 using Profile, PProf
 
 include("mesh_tools.jl")

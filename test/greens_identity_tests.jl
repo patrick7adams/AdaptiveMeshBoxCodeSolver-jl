@@ -10,6 +10,7 @@ using TestItems
     using InteractiveUtils
     using Profile, PProf
     using BenchmarkTools
+    using Pkg
 
     function test_simple_quadtree_greens_third_identity_zero()
         @testset "Greens Third Identity, u=x^2-y^2" begin
@@ -217,7 +218,7 @@ using TestItems
     end
 
     function test_simple_quadtree_greens_third_identity_complex_forcing()
-        @testset "Greens Third Identity, u=sin(kπx)sin(kπy), k=0.25, 0.5, 1.0, 2.0, 4.0" begin
+        @testset "Greens Third Identity, Complex u" begin
             println("Starting test!")
             σ = 0.06
             op = Inti.Laplace(; dim=2)
@@ -234,13 +235,8 @@ using TestItems
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
             meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u, false)
             println("Generated mesh!")
-            # error("bruh")
             domain_quadratures = AdaptiveMeshSolver.AdaptiveQuadrature(meshes, 8, 17)
             boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 18) for mesh in meshes[2:end]]
-            # AdaptiveMeshSolver.showMeshes(meshes)
-            # println(meshes[2])
-            # AdaptiveMeshSolver.showMesh(meshes[1], [[-0.18906250000000005, -0.30550088025258804], [-0.20625000000000004, -0.48125000000000007]])
-            # error("HI")
             f_vals = stack(laplacian_u.(AdaptiveMeshSolver.target_points(domain_quadratures)))
 
             vol_pot = AdaptiveMeshSolver.adaptive_volume_potential(; 
@@ -248,17 +244,7 @@ using TestItems
                 source=domain_quadratures, 
                 compression=(method = :fmm, tol=1e-14)
             )            
-            # Profile.clear()
-            # Profile.init(n=10000000, delay=1e-3)
-            # @profile potentials = vol_pot * f_vals
-            # pprof()
-            # error("hey")
-            potentials = vol_pot * f_vals
-            # potentials = vol_pot * f_vals
-            for i in 1:10
-                @time potentials = vol_pot * f_vals
-            end
-
+            Main.VSCodeServer.@profview potentials = vol_pot * f_vals
             target = Vector{SVector{2, Float64}}()
             multiplicative_terms = []
             for (i, quadrature) in enumerate(domain_quadratures)
@@ -266,15 +252,6 @@ using TestItems
                 append!(target, points)
             end
             
-            # count = 1
-            # for (i, quadrature) in enumerate(domain_quadratures)
-            #     l = length(quadrature)
-            #     terms = [i >= count && i < count+l ? :inside : :outside for i in 1:length(target)]
-            #     push!(multiplicative_terms, terms)
-            #     count += l
-            # end
-            # potentials = AdaptiveMeshSolver.calculateVolumePotential(domain_quadratures, meshes, laplacian_u, target, multiplicative_terms, true)
-
             for quad in boundary_quadratures
                 S, D = Inti.single_double_layer(;
                     op,
