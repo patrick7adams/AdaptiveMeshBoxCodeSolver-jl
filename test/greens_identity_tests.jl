@@ -244,7 +244,9 @@ using TestItems
                 source=domain_quadratures, 
                 compression=(method = :fmm, tol=1e-14)
             )            
-            Main.VSCodeServer.@profview potentials = vol_pot * f_vals
+            Main.VSCodeServer.@profview for _ in 1:20
+                potentials = vol_pot * f_vals
+            end
             target = Vector{SVector{2, Float64}}()
             multiplicative_terms = []
             for (i, quadrature) in enumerate(domain_quadratures)

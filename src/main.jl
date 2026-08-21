@@ -1094,10 +1094,36 @@ function getBoundaryQuadrature(mesh, order)
     return boundary_quadrature
 end
 
+# restructure plan:
+# change the kdtree from nearby points to nearby quads (if that is possible? construct kdtree with element centers, then filter on L_map)
+# then, when applying: for a given element, get the nearby elements from the kdtree
+# next, for each nearby element, we need to add this source quad's contribution to each target point in that target quad
+#  - to do this, map the center point of this quad to an index into a condensed L_map, that contains an 81 x 81 matrix representing the L mat for each
+#    target point in the target quad
+#  - then, with this condensed L, do the same calculations that we have done above. 
+
+# the kdtree should be done by quad index; then there is no more haskey check (corrections can be added easily by checking if source idx = target idx)
+# additionally, it will be easy to slice the quadrature/target points if target quad idx is known
+# L_map should map from 
+
+# I now have all relative quad centers, can store these in a set.
+# I now need to, for each quad center, get the points associated
+# with that center and create the big L mat.
+
+# new L_map should be done
+# next: store centers set
+# create kdtree based on quad centers, filter based on centers set, store nearby quad centers
+# modify quad contribution based on this
+
+function center_to_idx(center)
+    return round(Int64, center[1]*1e6) << 32 + round(Int32, center[2]*1e6)
+end
+
 function getRelativeTargetPoints(order, deg)
     # gets the location of all target points relative to 
 
     function getRingPoints(points, size_coeff, offset)
+        scaled_center = [SVector{2, Float64}(0.5, 0.5)] * size_coeff*2
         scaled_points = points * size_coeff*2
         stepsize = min(size_coeff, 1)*2
         num_points = Int64(max(size_coeff, 1/size_coeff))+1+2*offset*max(1, 1/size_coeff)
@@ -1121,12 +1147,16 @@ function getRelativeTargetPoints(order, deg)
         end
         ring_points = Set()
         for (i, offset) in enumerate(offset_points)
+            scaled_center  = scaled_center .+ Ref(offset)
+            tmp_points = Set()
             shifted_mat = scaled_points .+ Ref(offset)
             for point in shifted_mat
                 point = SVector{2, Float64}(round(point[1], digits=10), round(point[2], digits=10))
-                push!(ring_points, point)
+                push!(tmp_points, point)
             end
+
         end
+        @show ring_points
         return ring_points
     end
 
@@ -1140,27 +1170,8 @@ function getRelativeTargetPoints(order, deg)
     # size 0.25x: all quads 0.5h away
     q_points = Inti.qcoords(Inti._qrule_for_reference_shape(Inti.ReferenceSquare(), order))
     np = size(q_points)[1]
-    # @show q_points
-    quad_points = []
-    all_points = [
-        getRingPoints(q_points, 4, 2),
-        getRingPoints(q_points, 2, 2),
-        getRingPoints(q_points, 2, 1),
-        getRingPoints(q_points, 2, 0),
-        getRingPoints(q_points, 1, 2),
-        getRingPoints(q_points, 1, 1),
-        getRingPoints(q_points, 1, 0),
-        getRingPoints(q_points, 0.5, 1),
-        getRingPoints(q_points, 0.5, 0.5),
-        getRingPoints(q_points, 0.5, 0),
-        getRingPoints(q_points, 0.25, 0.5),
-        getRingPoints(q_points, 0.25, 0.75),
-        getRingPoints(q_points, 0.5, 1.5),
-    ]
-    # println(all_points)
-    point_set = union(all_points...)
-    L_map = Dict{SVector{2, Float64}, Vector{Float64}}()
-    
+    L_map = Dict{Int64, Matrix{Float64}}()
+
     nodes, weights = PolynomialBases.gauss_legendre_nodes_and_weights(deg-1)
     V = PolynomialBases.legendre_vandermonde(nodes) # 17x17 V mat 
     P = [(2*(i-1)+1)/2 * weights[j]*V[j, i] for i in 1:np, j in 1:np ]
@@ -1168,20 +1179,53 @@ function getRelativeTargetPoints(order, deg)
     ref_q_points = vec((q_points .- Ref(SVector{2, Float64}(0.5, 0.5))) * 2)
     ref_q_weights = vec(Inti.qweights(Inti._qrule_for_reference_shape(Inti.ReferenceSquare(), order)) .* 4.0)
 
-    # first we handle all points outside of the initial square
-    for point in point_set
-        log_vec = [log(norm(point-qp))*qw for (qp, qw) in zip(ref_q_points, ref_q_weights)]
-        L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
-        L_map[point] = vec(transpose(P)*L*P) - vec(log_vec)
+    for (size, offset) in [(2, 0), (1, 0), (0.5, 0)]
+        scaled_center = [SVector{2, Float64}(0.5, 0.5)] * size_coeff*2
+        scaled_points = points * size_coeff*2
+        stepsize = min(size_coeff, 1)*2
+        num_points = Int64(max(size_coeff, 1/size_coeff))+1+2*offset*max(1, 1/size_coeff)
+        offset_points = []
+        corner_pts = (
+            SVector{2, Float64}(-1-size_coeff*2 - offset*2, 1+offset*2),
+            SVector{2, Float64}(1+offset*2, 1+offset*2),
+            SVector{2, Float64}(1+offset*2, -1-size_coeff*2 - offset*2),
+            SVector{2, Float64}(-1-size_coeff*2 - offset*2, -1-size_coeff*2 - offset*2),
+        )
+        offsets = (
+            SVector{2, Float64}(stepsize, 0.0),
+            SVector{2, Float64}(0.0, -stepsize),
+            SVector{2, Float64}(-stepsize, 0.0),
+            SVector{2, Float64}(0.0, stepsize)
+        )
+        for i in 0:num_points-1
+            for (pnt, off) in zip(corner_pts, offsets)
+                push!(offset_points, pnt + off*i)
+            end
+        end
+        for (i, offset) in enumerate(offset_points)
+            scaled_center  = scaled_center .+ Ref(offset)
+            tmp_points = Vector{SVector{2, Float64}}()
+            shifted_mat = scaled_points .+ Ref(offset)
+            L = Matrix{Float64}(undef, np^2, np^2)
+            for (j, point) in enumerate(shifted_mat)
+                point = SVector{2, Float64}(round(point[1], digits=10), round(point[2], digits=10))
+                log_vec = [log(norm(point-qp))*qw for (qp, qw) in zip(ref_q_points, ref_q_weights)]
+                L_row = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
+                L[j, :] = vec(transpose(P)*L_row*P) - vec(log_vec)
+            end
+            L_map[center_to_idx(scaled_center)] = L
+        end
     end
-
-    # now we handle initial square points
-    for point in ref_q_points
+    # handle initial square separately
+    for (j, point) in enumerate(q_points)
+        L = Matrix{Float64}(undef, np^2, np^2)
         log_vec = [norm(point-qp) > 1e-6 ? log(norm(point-qp))*qw : 0.0 for (qp, qw) in zip(ref_q_points, ref_q_weights)]
         p = SVector{2, Float64}(round(point[1], digits=10), round(point[2], digits=10))
-        L = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(p), deg))
-        L_map[p] = vec(transpose(P)*L*P) - vec(log_vec)
+        L_row = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(p), deg))
+        L[j, :] = vec(transpose(P)*L_row*P) - vec(log_vec)
     end
+    L_map[center_to_idx(SVector{2, Float64}([0.0, 0.0]))] = L
+        
     Serialization.serialize(string("L_map_", order, "_", deg, ".jls"), L_map)
     return L_map
 end
@@ -1407,19 +1451,10 @@ function triangle_contribution_map(op, source, target_lengths, target, compressi
     return hcat(quad_tri_pot, triangle_potentials...)
 end
 
-@inline function custom_dot(L, f_vals, len)
-    s = 0.0
-    @turbo for i in 1:len
-        s += L[i]*f_vals[i]
-    end
-    s
-end
-
 function add_potential_contributions(potentials, near_target_points, L_map, f_vals, c, correction, self_map, len)
     for (point_idx, point) in near_target_points
         L = L_map[point]
-        # mat = dot(L, f_vals)
-        mat = custom_dot(L, f_vals, len)
+        mat = dot(L, f_vals)
         if haskey(self_map, point)
             self_idx = self_map[point]
             mat += correction[self_idx] * f_vals[self_idx]
@@ -1488,15 +1523,17 @@ end
 function quad_contribution(q_elems, self_map, quad_data_map, h_data_map, target, L_map, num_points, n, order)
     return LinearMaps.LinearMap{Float64}(n, n) do y, x
         potentials = zeros(n)
+        total = 0
         for i in eachindex(q_elems)
             f_vals = x[(i-1)*num_points+1:i*num_points]
             cqd = quad_data_map[i]
             h, near_target_points = cqd.h, cqd.near_target_points
-
+            total += length(near_target_points)
             chd = h_data_map[h]
             correction, c = chd.correction, chd.c
             add_potential_contributions(potentials, near_target_points, L_map, f_vals, c, correction, self_map, num_points)
         end
+        @show total
         return copyto!(y, potentials)
     end
 end
