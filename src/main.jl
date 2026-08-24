@@ -1179,9 +1179,9 @@ function getRelativeTargetPoints(order, deg)
     ref_q_points = vec((q_points .- Ref(SVector{2, Float64}(0.5, 0.5))) * 2)
     ref_q_weights = vec(Inti.qweights(Inti._qrule_for_reference_shape(Inti.ReferenceSquare(), order)) .* 4.0)
 
-    for (size, offset) in [(2, 0), (1, 0), (0.5, 0)]
+    for (size_coeff, offset) in [(2, 0), (1, 0), (0.5, 0)]
         scaled_center = [SVector{2, Float64}(0.5, 0.5)] * size_coeff*2
-        scaled_points = points * size_coeff*2
+        scaled_points = q_points * size_coeff*2
         stepsize = min(size_coeff, 1)*2
         num_points = Int64(max(size_coeff, 1/size_coeff))+1+2*offset*max(1, 1/size_coeff)
         offset_points = []
@@ -1203,7 +1203,7 @@ function getRelativeTargetPoints(order, deg)
             end
         end
         for (i, offset) in enumerate(offset_points)
-            scaled_center  = scaled_center .+ Ref(offset)
+            tmp_center = scaled_center .+ Ref(offset)
             tmp_points = Vector{SVector{2, Float64}}()
             shifted_mat = scaled_points .+ Ref(offset)
             L = Matrix{Float64}(undef, np^2, np^2)
@@ -1213,7 +1213,10 @@ function getRelativeTargetPoints(order, deg)
                 L_row = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
                 L[j, :] = vec(transpose(P)*L_row*P) - vec(log_vec)
             end
-            L_map[center_to_idx(scaled_center)] = L
+            @show scaled_center
+            @show tmp_center
+            @show center_to_idx(tmp_center)
+            L_map[center_to_idx(tmp_center)] = L
         end
     end
     # handle initial square separately
@@ -1224,6 +1227,7 @@ function getRelativeTargetPoints(order, deg)
         L_row = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(p), deg))
         L[j, :] = vec(transpose(P)*L_row*P) - vec(log_vec)
     end
+    @show center_to_idx(SVector{2, Float64}([0.0, 0.0]))
     L_map[center_to_idx(SVector{2, Float64}([0.0, 0.0]))] = L
         
     Serialization.serialize(string("L_map_", order, "_", deg, ".jls"), L_map)
@@ -1256,6 +1260,7 @@ function AdaptiveQuadrature(quadratures::AbstractVector{Inti.Quadrature{N, T}}, 
         points = [SVector{2, Float64}(q.coords[1], q.coords[2]) for q in quadrature]
         append!(target_points, points)
     end
+        
     kdtree = NearestNeighbors.KDTree(target_points)
     return AdaptiveQuadrature{N, T}(
         quadratures,
@@ -1324,7 +1329,7 @@ function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression
     P = [(2*(i-1)+1)/2 * weights[j]*V[j, i] for i in 1:deg, j in 1:deg ]
 
     self_map = create_self_map(order)
-    quad_data_map, h_data_map = create_quad_data_map(quadtree_mesh, tree, target, L_map, order)
+    quad_data_map, h_data_map = create_quad_data_map(quadtree_mesh, target, L_map, order)
     q_elems = collect(Inti.elements(quadtree_mesh))
 
     @time N = triangle_near_singular_correction_map(quadtree_mesh, q_coords, q_weights, tree, target, L_map, kernel, deg, P, n, num_points)
@@ -1484,11 +1489,21 @@ struct CachedHData
     c::Float64
 end
 
-function create_quad_data_map(quadtree_mesh, tree, target, L_map, order)
+function create_quad_data_map(quadtree_mesh, target, L_map, order)
     quad_data_map = Dict{Int64, CachedQuadData}()
     h_data_map = Dict{Float64, CachedHData}()
     ref_q_weights = Inti.qweights(Inti._qrule_for_reference_shape(Inti.ReferenceSquare(), order)) .* 4.0
     h_list = Set()
+
+    centers = Vector{SVector{2, Float64}}()
+    for elem in Inti.elements(quadtree_mesh)
+        coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
+        center = SVector{2, Float64}((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)
+        push!(centers, center)
+    end
+        
+    tree = NearestNeighbors.KDTree(centers)
+    
     for (i, elem) in enumerate(Inti.elements(quadtree_mesh))
         coords = [(x[1], x[2]) for x in Inti.vertices(elem)]
         tl_coord = coords[1]
@@ -1499,12 +1514,14 @@ function create_quad_data_map(quadtree_mesh, tree, target, L_map, order)
         init_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
         near_target_points = Vector{Tuple{Int64, SVector{2, Float64}}}()
         for point_idx in init_target_points
-            point = target[point_idx]
+            point = centers[point_idx]
             x_dist, y_dist = point[1] - tl_coord[1], point[2] - tl_coord[2]
             mapped_target_point = SVector{2, Float64}(round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0)
-            haskey(L_map, mapped_target_point) || continue
+            
+            haskey(L_map, center_to_idx(mapped_target_point)) || continue
             push!(near_target_points, (point_idx, mapped_target_point))
         end
+        @infiltrate
         cqd = CachedQuadData(h, near_target_points)
         quad_data_map[i] = cqd
     end
