@@ -107,6 +107,7 @@ using TestItems
 
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
             meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u, false)
+            # AdaptiveMeshSolver.showMesh(meshes[1], [[0.5499999999999999, 0.275], [0.6875, 0.27499999999999997], [0.55, 0.4124999999999999], [0.6875, 0.4124999999999999]])
             
             domain_quadratures = AdaptiveMeshSolver.AdaptiveQuadrature(meshes, 8, 17)
             f_vals = stack(laplacian_u.(AdaptiveMeshSolver.target_points(domain_quadratures)))
@@ -115,7 +116,6 @@ using TestItems
                 source=domain_quadratures, 
                 compression=(method = :fmm, tol=1e-14)
             )
-            @show vol_pot
             potentials = vol_pot * f_vals
 
             boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 18) for mesh in meshes[2:end]]
@@ -127,15 +127,6 @@ using TestItems
                 append!(target, points)
             end
             
-            # count = 1
-            # for (i, quadrature) in enumerate(domain_quadratures)
-            #     l = length(quadrature)
-            #     terms = [i >= count && i < count+l ? :inside : :outside for i in 1:length(target)]
-            #     push!(multiplicative_terms, terms)
-            #     count += l
-            # end
-            # potentials = AdaptiveMeshSolver.calculateVolumePotential(domain_quadratures, meshes, laplacian_u, target, multiplicative_terms, true)
-
             for quad in boundary_quadratures
                 S, D = Inti.single_double_layer(;
                     op,
@@ -153,10 +144,6 @@ using TestItems
                 potentials += contribution
             end
             errors = abs.(potentials - u.(target))
-            # @show errors[1:250]
-            # @show argmax(errors)
-            # @show errors[argmax(errors)]
-            # @show target[argmax(errors)]
             n = length(errors)
             L2_error = sqrt(1/n * sum(errors.^2))
             max_error = maximum(errors)
@@ -213,7 +200,7 @@ using TestItems
             potentials = S*γ₁u - D*γ₀u
             errors = abs.(potentials - u.(target))
             replace!(errors, 0.0 => 1e-16) # fix exact errors
-            AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
+            # AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
         end
     end
 
@@ -234,8 +221,9 @@ using TestItems
             # now create meshes
             parametrizations::Vector{Vector{Function}} = [[(x) -> (cos(x*2*pi), sin(x*2*pi))]]
             meshes = AdaptiveMeshSolver.createQuadtreeMesh(parametrizations, laplacian_u, false)
+            AdaptiveMeshSolver.showMesh(meshes[1], [[0.5500000000000002, -0.06875], [0.5671875000000001, -0.06875], [0.5500000000000002, -0.05156250000000009], [0.5671875000000001, -0.05156250000000009]])
             println("Generated mesh!")
-            domain_quadratures = AdaptiveMeshSolver.AdaptiveQuadrature(meshes, 8, 17)
+            domain_quadratures = AdaptiveMeshSolver.AdaptiveQuadrature(meshes, 8, 12)
             boundary_quadratures = [AdaptiveMeshSolver.getBoundaryQuadrature(mesh, 18) for mesh in meshes[2:end]]
             f_vals = stack(laplacian_u.(AdaptiveMeshSolver.target_points(domain_quadratures)))
 
@@ -244,9 +232,10 @@ using TestItems
                 source=domain_quadratures, 
                 compression=(method = :fmm, tol=1e-14)
             )            
-            Main.VSCodeServer.@profview for _ in 1:20
-                potentials = vol_pot * f_vals
+            for i in 1:5
+                @time potentials = vol_pot * f_vals
             end
+            @time potentials = vol_pot * f_vals
             target = Vector{SVector{2, Float64}}()
             multiplicative_terms = []
             for (i, quadrature) in enumerate(domain_quadratures)
@@ -257,7 +246,6 @@ using TestItems
             for quad in boundary_quadratures
                 S, D = Inti.single_double_layer(;
                     op,
-                    # AdaptiveMeshSolver.target_points(domain_quadratures),
                     target,
                     source = quad,
                     compression = (method = :none, ), 
@@ -272,14 +260,17 @@ using TestItems
             end
             errors = abs.(potentials - u.(target))
             # @show errors[1:250]
-            # @show argmax(errors)
-            # @show errors[argmax(errors)]
-            # @show target[argmax(errors)]
+            # @show errors[81400:end]
+            @show maximum(errors)
+            @show argmax(errors)
+            @show errors[argmax(errors)]
+            @show target[argmax(errors)]
             n = length(errors)
             L2_error = sqrt(1/n * sum(errors.^2))
             max_error = maximum(errors)
             @show L2_error
             @show max_error
+
             # AdaptiveMeshSolver.showErrorMesh(meshes, target, errors)
         end
     end

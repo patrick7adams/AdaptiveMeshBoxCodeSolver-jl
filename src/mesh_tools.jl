@@ -41,7 +41,7 @@ function showErrorMesh(meshes, quadrature_points, errors)
     # quadtree_mesh = view(meshes[1], quadtree_dom)
     quadtree_mesh = @views meshes[1][quadtree_dom]
 
-    quadrature_pointset = Point2f.(quadrature_points)
+    # quadrature_pointset = Point2f.(quadrature_points)
     xs, ys = ([q[i] for q in quadrature_points] for i in 1:2)
     colors = log10.(errors .+ 1e-16)
 
@@ -55,6 +55,8 @@ function showErrorMesh(meshes, quadrature_points, errors)
     Colorbar(fig[1, 2]; colormap = :inferno, colorrange = (minimum(colors), maximum(colors)), label = "log_{10} of error")
     
     display(fig)
+
+    return
 
     plot!(quadtree_mesh; strokewidth = 1, color = (:gray, 0.0), shading = NoShading)
 

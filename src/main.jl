@@ -1115,6 +1115,13 @@ end
 # create kdtree based on quad centers, filter based on centers set, store nearby quad centers
 # modify quad contribution based on this
 
+# what should quad contribution here be then, for a given element -> element contribution?
+
+# in any case, we multiply L for the given target element by the f_vals of the given source element.
+# then, if e1 == e2, we can add in a set correction mat (the correction vec just needs to multiply elementwise against f_vals)
+# then we add all contributions to the target potentials by idx
+# if e1 == e2: then 
+
 function center_to_idx(center)
     return round(Int64, center[1]*1e6) << 32 + round(Int32, center[2]*1e6)
 end
@@ -1122,48 +1129,11 @@ end
 function getRelativeTargetPoints(order, deg)
     # gets the location of all target points relative to 
 
-    function getRingPoints(points, size_coeff, offset)
-        scaled_center = [SVector{2, Float64}(0.5, 0.5)] * size_coeff*2
-        scaled_points = points * size_coeff*2
-        stepsize = min(size_coeff, 1)*2
-        num_points = Int64(max(size_coeff, 1/size_coeff))+1+2*offset*max(1, 1/size_coeff)
-        offset_points = []
-        corner_pts = (
-            SVector{2, Float64}(-1-size_coeff*2 - offset*2, 1+offset*2),
-            SVector{2, Float64}(1+offset*2, 1+offset*2),
-            SVector{2, Float64}(1+offset*2, -1-size_coeff*2 - offset*2),
-            SVector{2, Float64}(-1-size_coeff*2 - offset*2, -1-size_coeff*2 - offset*2),
-        )
-        offsets = (
-            SVector{2, Float64}(stepsize, 0.0),
-            SVector{2, Float64}(0.0, -stepsize),
-            SVector{2, Float64}(-stepsize, 0.0),
-            SVector{2, Float64}(0.0, stepsize)
-        )
-        for i in 0:num_points-1
-            for (pnt, off) in zip(corner_pts, offsets)
-                push!(offset_points, pnt + off*i)
-            end
-        end
-        ring_points = Set()
-        for (i, offset) in enumerate(offset_points)
-            scaled_center  = scaled_center .+ Ref(offset)
-            tmp_points = Set()
-            shifted_mat = scaled_points .+ Ref(offset)
-            for point in shifted_mat
-                point = SVector{2, Float64}(round(point[1], digits=10), round(point[2], digits=10))
-                push!(tmp_points, point)
-            end
-
-        end
-        @show ring_points
-        return ring_points
-    end
-
     # this function should return a dictionary that maps target points to L matrices for every possible target point location,
     # given the balance restriction.
     # points to add: 
     # size 4x: all quads 2h away
+    
     # size 2x: all quads 0h, 1h, 2h away
     # size 1x: all quads 0h, 1h, 2h away
     # size 0.5x: all quads 0h, 0.5h, 1h away
@@ -1179,8 +1149,9 @@ function getRelativeTargetPoints(order, deg)
     ref_q_points = vec((q_points .- Ref(SVector{2, Float64}(0.5, 0.5))) * 2)
     ref_q_weights = vec(Inti.qweights(Inti._qrule_for_reference_shape(Inti.ReferenceSquare(), order)) .* 4.0)
 
-    for (size_coeff, offset) in [(2, 0), (1, 0), (0.5, 0)]
-        scaled_center = [SVector{2, Float64}(0.5, 0.5)] * size_coeff*2
+    for (size_coeff, offset) in [(2, 0), (1, 0), (0.5, 0), ]
+    # for (size_coeff, offset) in [(4, 2), (2, 2), (2, 1), (2, 0), (1, 2), (1, 1), (1, 0), (0.5, 1.5), (0.5, 1), (0.5, 0.5), (0.5, 0), (0.25, 0.75), (0.25, 0.5)]
+        scaled_center = SVector{2, Float64}(0.5, 0.5) * size_coeff*2
         scaled_points = q_points * size_coeff*2
         stepsize = min(size_coeff, 1)*2
         num_points = Int64(max(size_coeff, 1/size_coeff))+1+2*offset*max(1, 1/size_coeff)
@@ -1203,31 +1174,27 @@ function getRelativeTargetPoints(order, deg)
             end
         end
         for (i, offset) in enumerate(offset_points)
-            tmp_center = scaled_center .+ Ref(offset)
+            tmp_center = scaled_center + offset
             tmp_points = Vector{SVector{2, Float64}}()
             shifted_mat = scaled_points .+ Ref(offset)
             L = Matrix{Float64}(undef, np^2, np^2)
             for (j, point) in enumerate(shifted_mat)
-                point = SVector{2, Float64}(round(point[1], digits=10), round(point[2], digits=10))
                 log_vec = [log(norm(point-qp))*qw for (qp, qw) in zip(ref_q_points, ref_q_weights)]
                 L_row = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
                 L[j, :] = vec(transpose(P)*L_row*P) - vec(log_vec)
             end
-            @show scaled_center
             @show tmp_center
-            @show center_to_idx(tmp_center)
+            @show i
             L_map[center_to_idx(tmp_center)] = L
         end
     end
     # handle initial square separately
-    for (j, point) in enumerate(q_points)
-        L = Matrix{Float64}(undef, np^2, np^2)
-        log_vec = [norm(point-qp) > 1e-6 ? log(norm(point-qp))*qw : 0.0 for (qp, qw) in zip(ref_q_points, ref_q_weights)]
-        p = SVector{2, Float64}(round(point[1], digits=10), round(point[2], digits=10))
-        L_row = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(p), deg))
+    L = Matrix{Float64}(undef, np^2, np^2)
+    for (j, point) in enumerate(ref_q_points)
+        log_vec = [norm(point-qp) > 1e-12 ? log(norm(point-qp))*qw : 0.0 for (qp, qw) in zip(ref_q_points, ref_q_weights)]
+        L_row = Float64.(MultivariateSingularIntegrals.newtoniansquare(big.(point), deg))
         L[j, :] = vec(transpose(P)*L_row*P) - vec(log_vec)
     end
-    @show center_to_idx(SVector{2, Float64}([0.0, 0.0]))
     L_map[center_to_idx(SVector{2, Float64}([0.0, 0.0]))] = L
         
     Serialization.serialize(string("L_map_", order, "_", deg, ".jls"), L_map)
@@ -1328,16 +1295,19 @@ function adaptive_volume_potential(; op, source::AdaptiveQuadrature, compression
     V = PolynomialBases.legendre_vandermonde(nodes)
     P = [(2*(i-1)+1)/2 * weights[j]*V[j, i] for i in 1:deg, j in 1:deg ]
 
-    self_map = create_self_map(order)
     quad_data_map, h_data_map = create_quad_data_map(quadtree_mesh, target, L_map, order)
     q_elems = collect(Inti.elements(quadtree_mesh))
 
-    @time N = triangle_near_singular_correction_map(quadtree_mesh, q_coords, q_weights, tree, target, L_map, kernel, deg, P, n, num_points)
-    @time t_map = triangle_contribution_map(op, source, target_lengths, target, compression, n)
-    @time q_map = quad_contribution(q_elems, self_map, quad_data_map, h_data_map, target, L_map, num_points, n, order)
-    @time f_map = fmm_map(q_weights, target_lengths, targets, n, sources)
+    N = triangle_near_singular_correction_map(quadtree_mesh, q_coords, q_weights, tree, target, kernel, deg, P, n, num_points, target_lengths[1])
+    t_map = triangle_contribution_map(op, source, target_lengths, target, compression, n)
+    q_map = quad_contribution(q_elems, quad_data_map, h_data_map, L_map, num_points, n)
+    f_map = fmm_map(q_weights, target_lengths, targets, n, sources)
+
+    # fmm: quad -> all
+
 
     vol_map = f_map + N + q_map - t_map
+    # vol_map = f_map + q_map - t_map
     return vol_map
 end
 
@@ -1360,7 +1330,7 @@ function fmm_map(q_weights, target_lengths, targets, n, sources)
     end
 end
 
-function triangle_near_singular_correction_map(quadtree_mesh, q_coords, q_weights, tree, target, L_map, kernel, deg, P, n, num_points)
+function triangle_near_singular_correction_map(quadtree_mesh, q_coords, q_weights, tree, target, kernel, deg, P, n, num_points, quad_len)
     rows = Vector{Int32}()
     cols = Vector{Int32}()
     vals = Vector{Float64}()
@@ -1375,14 +1345,16 @@ function triangle_near_singular_correction_map(quadtree_mesh, q_coords, q_weight
 
         near_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
         filtered_target_points = []
+        # filter based on if target point is in the quads/triangles
+
+        # ERROR HERE
         for point_idx in near_target_points
-            point = target[point_idx]
-            x_dist, y_dist = point[1] - coords[1][1], point[2] - coords[1][2]
-            mapped_target_point = [round(-1.0+2/h*x_dist, digits=10)+0.0, round(-1.0+2/h*y_dist, digits=10)+0.0]
-            ~haskey(L_map, mapped_target_point) || continue
+            point_idx > quad_len || continue
             push!(filtered_target_points, point_idx)
         end
         ~isempty(filtered_target_points) || continue
+        # @show length(near_target_points)
+        # @show length(filtered_target_points)
         
         b = log(2/h)/(2*pi)
         c = h^2 / (8*pi)
@@ -1425,14 +1397,14 @@ function triangle_contribution_map(op, source, target_lengths, target, compressi
             before_target_points = target[1:strip_start-1]
         end
         # @infiltrate
-        @time inside_volume_potential = Inti.volume_potential(; 
+        inside_volume_potential = Inti.volume_potential(; 
             op, 
             target = inside_target_points, 
             source = quadrature,
             compression = compression,
             correction = (method = :dim, maxdist=0.2, target_location=:inside), 
         )
-        @time before_volume_potential = Inti.volume_potential(; 
+        before_volume_potential = Inti.volume_potential(; 
             op, 
             target = before_target_points, 
             source = quadrature,
@@ -1456,27 +1428,36 @@ function triangle_contribution_map(op, source, target_lengths, target, compressi
     return hcat(quad_tri_pot, triangle_potentials...)
 end
 
-function add_potential_contributions(potentials, near_target_points, L_map, f_vals, c, correction, self_map, len)
-    for (point_idx, point) in near_target_points
-        L = L_map[point]
-        mat = dot(L, f_vals)
-        if haskey(self_map, point)
-            self_idx = self_map[point]
-            mat += correction[self_idx] * f_vals[self_idx]
+function add_potential_contributions(potentials, near_elements, L_map, f_vals, c, self_idx, num_pts, buffer)
+    # loop through nearby elems
+    # for quad at index elem_idx, where are the points?
+    for (elem_idx, center) in near_elements
+        elem_idx != self_idx || continue
+        L = L_map[center_to_idx(center)]
+        # mat = L * f_vals .* c
+        mul!(buffer, L, f_vals)
+        pos = (elem_idx-1)*num_pts
+        for i in 1:num_pts
+            potentials[pos+i] += buffer[i]*c
         end
-        potentials[point_idx] += c*mat
     end
 end
 
-function create_self_map(order)
-    q_points = Inti.qcoords(Inti._qrule_for_reference_shape(Inti.ReferenceSquare(), order))
-    ref_q_points = (q_points .- Ref(SVector{2, Float64}(0.5, 0.5))) * 2
-    self_map = Dict{SVector{2, Float64}, Int64}()
-    for (j, qp) in enumerate(vec(ref_q_points))
-        mapped_qp = SVector{2, Float64}(round(qp[1], digits=10)+0.0, round(qp[2], digits=10)+0.0)
-        self_map[mapped_qp] = j
+function add_correction_contribution(potentials, L_map, f_vals, c, correction, self_idx, num_pts, buffer)
+    # ith element of mat = L_i * f_vals * c
+    # with correction: this should be (L_i * f_vals + correction_i * f_vals_i) * c
+    # L = L_map[0] + Diagonal(correction)
+    # L = L_map[0] + Diagonal(correction)
+    L = L_map[0]
+    # mat = L * f_vals
+    mul!(buffer, L, f_vals)
+    for i in 1:num_pts
+        buffer[i] += correction[i] * f_vals[i]
     end
-    return self_map
+    pos = (self_idx-1)*num_pts
+    for i in 1:num_pts
+        potentials[pos+i] += buffer[i]*c
+    end
 end
 
 struct CachedQuadData
@@ -1488,6 +1469,11 @@ struct CachedHData
     correction::Vector{Float64}
     c::Float64
 end
+
+# max error doesn't change with more stencil quads, at all
+# error is within quad->quad fosho
+# error is within big quad -> little quad interactions I think? It is highest on points in big quads close to small quads
+# potential for these would be screwed up by the little quad, so it is actually the little quad -> big quad
 
 function create_quad_data_map(quadtree_mesh, target, L_map, order)
     quad_data_map = Dict{Int64, CachedQuadData}()
@@ -1511,7 +1497,7 @@ function create_quad_data_map(quadtree_mesh, target, L_map, order)
         push!(h_list, h)
         
         center = [SVector((coords[3][1] + coords[1][1])/2, (coords[3][2] + coords[1][2])/2)]
-        init_target_points = NearestNeighbors.inrange(tree, center, h*1.5)[1]
+        init_target_points = NearestNeighbors.inrange(tree, center, h*4.0)[1]
         near_target_points = Vector{Tuple{Int64, SVector{2, Float64}}}()
         for point_idx in init_target_points
             point = centers[point_idx]
@@ -1521,7 +1507,6 @@ function create_quad_data_map(quadtree_mesh, target, L_map, order)
             haskey(L_map, center_to_idx(mapped_target_point)) || continue
             push!(near_target_points, (point_idx, mapped_target_point))
         end
-        @infiltrate
         cqd = CachedQuadData(h, near_target_points)
         quad_data_map[i] = cqd
     end
@@ -1537,20 +1522,19 @@ function create_quad_data_map(quadtree_mesh, target, L_map, order)
     return quad_data_map, h_data_map
 end
 
-function quad_contribution(q_elems, self_map, quad_data_map, h_data_map, target, L_map, num_points, n, order)
+function quad_contribution(q_elems, quad_data_map, h_data_map, L_map, num_points, n)
     return LinearMaps.LinearMap{Float64}(n, n) do y, x
         potentials = zeros(n)
-        total = 0
+        buffer = Vector{Float64}(undef, num_points)
         for i in eachindex(q_elems)
-            f_vals = x[(i-1)*num_points+1:i*num_points]
+            f_vals = view(x, (i-1)*num_points+1:i*num_points)
             cqd = quad_data_map[i]
             h, near_target_points = cqd.h, cqd.near_target_points
-            total += length(near_target_points)
             chd = h_data_map[h]
             correction, c = chd.correction, chd.c
-            add_potential_contributions(potentials, near_target_points, L_map, f_vals, c, correction, self_map, num_points)
+            add_potential_contributions(potentials, near_target_points, L_map, f_vals, c, i, num_points, buffer)
+            add_correction_contribution(potentials, L_map, f_vals, c, correction, i, num_points, buffer)
         end
-        @show total
         return copyto!(y, potentials)
     end
 end
